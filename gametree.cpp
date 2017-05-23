@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
+#include <cfloat>
 
 Node::Node(Board b, Node *parent, Side side) {
     this->board = b;
@@ -16,6 +17,7 @@ Node::Node(Board b, Node *parent, Side side) {
     Move *movesArr = new Move[60];
     int numMoves = b.getMovesAsArray(movesArr, side);
     moves = std::vector<Move>(movesArr, movesArr + numMoves);
+    if (numMoves > 60) fprintf(stderr, "moves: %d\n", numMoves);
     children.resize(numMoves);
 
     if (numMoves == 0) {
@@ -119,21 +121,37 @@ void Node::updateSim(int numSims, int winDiff) {
     }
 }
 
-// Currently will fail if there are no explored moves
-Move Node::getBestMove() {
-    int bestMoveCount = 0;
-    Move bestMove(-1, -1);
+bool Node::getBestMove(Move *m) {
+    // int bestWinDiff = INT_MIN;
+    // int bestMoveCount = 0;
+    float bestScore = -FLT_MAX;
+    // float mostFreqScore = -FLT_MAX;
+    Move bestScoreMove(-1, -1);
+    int bestMoveFreq = 0;
+    // int bestScoreFreq = 0;
+    Move mostFrequentMove(-1, -1);
     for (uint i = 0; i < moves.size(); i++) {
-        if (children[i] && children[i]->numSims > bestMoveCount) {
-            bestMove = moves[i];
-            bestMoveCount = children[i]->numSims;
-        }
-        if (i < children.size() && children[i]) {
-            fprintf(stderr, "(%d, %d): %d / %d\n",
-                moves[i].x, moves[i].y,
-                -children[i]->winDiff, children[i]->numSims);
+        Node *n = children[i];
+        if (n) {
+            float score = (float) -n->winDiff / n->numSims;
+            if (score > bestScore) {
+                bestScoreMove = moves[i];
+                bestScore = score;
+                // bestScoreFreq = n->numSims;
+            }
+            if (n->numSims > bestMoveFreq) {
+                mostFrequentMove = moves[i];
+                bestMoveFreq = n->numSims;
+            }
         }
     }
-    fprintf(stderr, "Played: (%d, %d)\n", bestMove.x, bestMove.y);
-    return bestMove;
+    if (bestScoreMove != mostFrequentMove) {
+        fprintf(stderr, "Frequency-score mismatch, re-searching...\n");
+        return false;
+    }
+
+    *m = bestScoreMove;
+    fprintf(stderr, "Played (%d, %d): %f, %d\n",
+        bestScoreMove.x, bestScoreMove.y, bestScore, bestMoveFreq);
+    return true;
 }

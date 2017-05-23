@@ -22,6 +22,12 @@ class Move {
         this->x = m.x;
         this->y = m.y;        
     }
+    bool operator==(const Move &other) const {
+        return this->x == other.x && this->y == other.y;
+    }
+    bool operator!=(const Move &other) const {
+        return !(*this == other);
+    }
     ~Move() {}
 };
 

@@ -28,6 +28,7 @@ void simulateNode(Node *n, int numSims) {
 		else {
 			winDiff--;
 		}
+		delete[] moves;
 	}
 	n->updateSim(numSims, winDiff);
 }

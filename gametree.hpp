@@ -27,7 +27,7 @@ class Node {
     void updateSim(int numSims, int winDiff);
 
     // Given simulations so far, return move with most number of simulations.
-    Move getBestMove();
+    bool getBestMove(Move *m);
 
   private:
     bool terminal;
