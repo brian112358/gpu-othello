@@ -6,10 +6,13 @@
 #include "common.hpp"
 
 // Cp is a constant used for calculating a node's UCT score
-#define CP 0.7
+#define CP 1.4
 
 class Node {
   public:
+    Side side;
+    Board board;
+
     Node(Board b, Node *parent, Side side);
     ~Node();
 
@@ -21,7 +24,7 @@ class Node {
     // node itself will be returned using the output variable expandNode.
     Node *searchScore();
 
-    void updateSim(int numSims, int numWins);
+    void updateSim(int numSims, int winDiff);
 
     // Given simulations so far, return move with most number of simulations.
     Move getBestMove();
@@ -29,12 +32,10 @@ class Node {
   private:
     bool terminal;
     bool fullyExpanded;
-    Side side;
-    Board board;
     Node *parent;
     std::vector<Move> moves;
     std::vector<Node*> children;
-    int numWins;
+    int winDiff;
     int numSims;
 };
 

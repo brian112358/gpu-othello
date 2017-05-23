@@ -5,7 +5,7 @@
 #include <vector>
 #include <cstdlib>
 #include <cmath>
-#include <cstdlib>
+#include <ctime>
 
 #include "gametree.hpp"
 #include "simulate.hpp"
@@ -18,6 +18,7 @@
 Player::Player(Side side) {    
     board = new Board();
     this->side = side;
+    srand(time(NULL));
 }
 
 /*
@@ -68,22 +69,27 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     fprintf(stderr, "msLeft: %d\n", msLeft);
     if (opponentsMove) {
         // fprintf(stderr, "Opponent move: (%d, %d)\n", opponentsMove->x, opponentsMove->y);
-        board->doMove(*opponentsMove, OTHER(side));
+        board->doMove(*opponentsMove, OTHER(this->side));
     }
 
     // board->printBoard();
     
-    Node root(*board, nullptr, side);
+    Node root(*board, nullptr, this->side);
     simulateNode(&root, 1);
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 100000; i++) {
         Node *expandedNode = root.searchScore();
+        if (!expandedNode) {
+            fprintf(stderr, "Node is null\n");
+            continue;
+        }
         simulateNode(expandedNode, 1);
+        // if (i % 1000 == 0) fprintf(stderr, "i: %d\n", i);
     }
 
     Move *move = new Move(root.getBestMove());
 
-    board->doMove(*move, side);
+    board->doMove(*move, this->side);
 
     // fprintf(stderr, "My move: (%d, %d)\n", move->x, move->y);
     // board->printBoard();

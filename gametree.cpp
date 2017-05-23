@@ -1,13 +1,15 @@
 #include "gametree.hpp"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <cassert>
 
 Node::Node(Board b, Node *parent, Side side) {
     this->board = b;
     this->parent = parent;
     this->side = side;
-    numWins = 0;
+    winDiff = 0;
     numSims = 0;
 
 
@@ -17,12 +19,13 @@ Node::Node(Board b, Node *parent, Side side) {
     children.resize(numMoves);
 
     if (numMoves == 0) {
-        fullyExpanded = true;
         if (!board.isDone()) {
+            fullyExpanded = false;
             moves.push_back(Move(-1, -1));
-            children.push_back(new Node(board, this, OTHER(side)));
+            children.resize(1);
         }
         else {
+            fullyExpanded = true;
             terminal = true;
         }
     }
@@ -41,7 +44,11 @@ Node::~Node() {
 
 Node *Node::addChild(int i) {
     Board b = this->board;
-    b.doMove(moves[i], side);
+    Move m = moves[i];
+    // If move is PASS do nothing
+    if (! (m.x == 1 && m.y == 1)) {
+        b.doMove(moves[i], side);
+    }
     children[i] = new Node(b, this, OTHER(side));
     return children[i];
 }
@@ -50,33 +57,66 @@ Node *Node::searchScore() {
     if (!fullyExpanded) {
         // Then randomly expand one of the children
         std::vector<int> unvisited_children;
-        for (uint i = 0; i < moves.size(); i++) {
-            if (!children[i]) unvisited_children.push_back(i);
+        if (moves.size() == 1 && children.size() == 0) {
+            fullyExpanded = true;
+            unvisited_children.push_back(0);
         }
-        return addChild(unvisited_children[rand() % unvisited_children.size()]);
+        else {
+            for (uint i = 0; i < moves.size(); i++) {
+                if (!children[i]) {
+                    unvisited_children.push_back(i);
+                }
+                else {
+                    assert(children[i]->numSims > 0);
+                }
+            }
+        }
+        if (unvisited_children.size() == 1) {
+            fullyExpanded = true;
+        }
+
+        int i = rand() % unvisited_children.size();
+        // fprintf(stderr, "Expanding child: (%d, %d)\n", moves[i].x, moves[i].y);
+        return addChild(unvisited_children[i]);
     }
     else if (!terminal) {
         // Choose child based on UCT score
         float bestScore = -1;
         Node *bestChild = nullptr;
         for (Node *n : children) {
-            float score = n->numWins / n->numSims + CP * sqrt(log(numSims) / n->numSims);
+            assert( n );
+            assert( n->numSims > 0 );
+            float exploit = (float) -n->winDiff / n->numSims;
+            float explore = (float) sqrt(log((float)numSims) / n->numSims);
+            float score = exploit + CP * explore;
+            // fprintf(stderr, "Exploit: %f\t Explore: %f\n", exploit, explore);
+            // float score = (float)n->winDiff / n->numSims
+            //     + CP * sqrt(log((float)numSims) / (float)n->numSims);
             if (!bestChild || score > bestScore) {
                 bestScore = score;
                 bestChild = n;
             }
         }
+        if (!bestChild) {
+            fprintf(stderr, "No children\n");
+            return this;
+        }
         return bestChild->searchScore();
     }
     else {
-        return nullptr;
+        // If this is a terminal and fully expanded node, then just simulate
+        // from this node
+        return this;
     }
 }
 
-void Node::updateSim(int numSims, int numWins) {
-    this->numWins += numWins;
+void Node::updateSim(int numSims, int winDiff) {
+    this->winDiff += winDiff;
     this->numSims += numSims;
-    if (parent) parent->updateSim(numSims, numWins);
+    // Negate number of wins 
+    if (parent) {
+        parent->updateSim(numSims, -winDiff);
+    }
 }
 
 // Currently will fail if there are no explored moves
@@ -86,7 +126,14 @@ Move Node::getBestMove() {
     for (uint i = 0; i < moves.size(); i++) {
         if (children[i] && children[i]->numSims > bestMoveCount) {
             bestMove = moves[i];
+            bestMoveCount = children[i]->numSims;
+        }
+        if (i < children.size() && children[i]) {
+            fprintf(stderr, "(%d, %d): %d / %d\n",
+                moves[i].x, moves[i].y,
+                -children[i]->winDiff, children[i]->numSims);
         }
     }
+    fprintf(stderr, "Played: (%d, %d)\n", bestMove.x, bestMove.y);
     return bestMove;
 }

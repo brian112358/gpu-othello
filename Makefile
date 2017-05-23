@@ -11,7 +11,7 @@ GENCODE_FLAGS = -gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,cod
 
 CUDA_LIB_PATH = $(CUDA_LIB_PATH)64
 LDFLAGS       = -L$(CUDA_LIB_PATH) -lcufft -lcudart -lcurand
-CCFLAGS       = -std=c++11 -m64 -Wall -pedantic -pg
+CCFLAGS       = -std=c++11 -m64 -Wall -pedantic -g
 NVCCFLAGS     = -m64 -lcufft -lcurand
 
 OBJS        = board.o simulate.o gametree.o player.o
@@ -25,7 +25,7 @@ $(PLAYERNAME): $(OBJS) wrapper.o
 testgame: testgame.o
 	$(CC) $(CCFLAGS) $^ -o $@
 
-test: test.cpp board.o
+test: $(OBJS) test.cpp
 	$(CC) $(CCFLAGS) $^ -o $@
 
 testgame.o: testgame.cpp

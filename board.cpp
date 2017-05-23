@@ -101,7 +101,7 @@ bool Board::isDone() {
 }
 
 bool Board::hasMoves(Side side) {
-    return !getMoves(side);
+    return getMoves(side);
 }
 
 int Board::numMoves(Side side) {
