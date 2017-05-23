@@ -122,13 +122,9 @@ void Node::updateSim(int numSims, int winDiff) {
 }
 
 bool Node::getBestMove(Move *m) {
-    // int bestWinDiff = INT_MIN;
-    // int bestMoveCount = 0;
     float bestScore = -FLT_MAX;
-    // float mostFreqScore = -FLT_MAX;
     Move bestScoreMove(-1, -1);
     int bestMoveFreq = 0;
-    // int bestScoreFreq = 0;
     Move mostFrequentMove(-1, -1);
     for (uint i = 0; i < moves.size(); i++) {
         Node *n = children[i];
@@ -137,7 +133,6 @@ bool Node::getBestMove(Move *m) {
             if (score > bestScore) {
                 bestScoreMove = moves[i];
                 bestScore = score;
-                // bestScoreFreq = n->numSims;
             }
             if (n->numSims > bestMoveFreq) {
                 mostFrequentMove = moves[i];
