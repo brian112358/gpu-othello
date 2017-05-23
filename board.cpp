@@ -97,7 +97,7 @@ bool Board::get(Side side, int x, int y) {
 }
 
 bool Board::isDone() {
-    return !hasMoves(WHITE) && !hasMoves(BLACK);
+    return !(hasMoves(WHITE) || hasMoves(BLACK));
 }
 
 bool Board::hasMoves(Side side) {
@@ -113,6 +113,7 @@ bool Board::checkMove(Move m, Side side) {
 }
 
 bool Board::doMove(Move m, Side side) {
+    // Return false if move is not valid
     if (!(getMoves(side) & moveToBitboard(m))) {
         return false;
     }

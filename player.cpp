@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstdlib>
 
+#include "gametree.hpp"
+#include "simulate.hpp"
+
 /*
  * Constructor for the player; initialize everything here. The side your AI is
  * on (BLACK or WHITE) is passed in as "side". The constructor must finish 
@@ -36,27 +39,54 @@ Player::~Player() {
  * The move returned must be legal; if there are no valid moves for your side,
  * return nullptr.
  */
+// Move *Player::doMove(Move *opponentsMove, int msLeft) {
+//     fprintf(stderr, "msLeft: %d\n", msLeft);
+//     if (opponentsMove) {
+//         // fprintf(stderr, "Opponent move: (%d, %d)\n", opponentsMove->x, opponentsMove->y);
+//         board->doMove(*opponentsMove, OTHER(side));
+//     }
+
+//     // board->printBoard();
+
+//     Move *moves = new Move[64];
+
+//     int numMoves = board->getMovesAsArray(moves, side);
+
+//     if (!numMoves) return nullptr;
+
+//     Move *move = new Move(moves[rand() % numMoves]);
+//     delete[] moves;
+
+//     board->doMove(*move, side);
+
+//     // fprintf(stderr, "My move: (%d, %d)\n", move->x, move->y);
+//     // board->printBoard();
+
+//     return move;
+// }
 Move *Player::doMove(Move *opponentsMove, int msLeft) {
+    fprintf(stderr, "msLeft: %d\n", msLeft);
     if (opponentsMove) {
-        fprintf(stderr, "Opponent move: (%d, %d)\n", opponentsMove->x, opponentsMove->y);
+        // fprintf(stderr, "Opponent move: (%d, %d)\n", opponentsMove->x, opponentsMove->y);
         board->doMove(*opponentsMove, OTHER(side));
     }
 
-    board->printBoard();
+    // board->printBoard();
+    
+    Node root(*board, nullptr, side);
+    simulateNode(&root, 1);
 
-    Move *moves = new Move[64];
+    for (int i = 0; i < 1000; i++) {
+        Node *expandedNode = root.searchScore();
+        simulateNode(expandedNode, 1);
+    }
 
-    int numMoves = board->getMovesAsArray(moves, side);
-
-    if (!numMoves) return nullptr;
-
-    Move *move = new Move(moves[rand() % numMoves]);
-    delete[] moves;
+    Move *move = new Move(root.getBestMove());
 
     board->doMove(*move, side);
 
-    fprintf(stderr, "My move: (%d, %d)\n", move->x, move->y);
-    board->printBoard();
+    // fprintf(stderr, "My move: (%d, %d)\n", move->x, move->y);
+    // board->printBoard();
 
     return move;
 }
