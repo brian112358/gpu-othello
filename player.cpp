@@ -28,8 +28,8 @@ Player::~Player() {
     delete board;
 }
 
-#define NUM_ITERS 100000
-#define SIMS_PER_ITER 10
+#define NUM_ITERS 1000000
+#define SIMS_PER_ITER 1
 
 Move *Player::doMove(Move *opponentsMove, int msLeft) {
     fprintf(stderr, "msLeft: %d\n", msLeft);

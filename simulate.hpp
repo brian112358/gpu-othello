@@ -5,4 +5,6 @@
 
 void simulateNode(Node *n, int numSims);
 
+void simulateNodeGpu(Node *n, int numSims);
+
 #endif

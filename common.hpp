@@ -1,6 +1,9 @@
 #ifndef __COMMON_HPP__
 #define __COMMON_HPP__
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 enum Side { 
     WHITE, BLACK
 };
@@ -10,25 +13,25 @@ enum Side {
 class Move {
   public:
     int x, y;
-    Move() {
+    __host__ __device__ Move() {
         this->x = -1;
         this->y = -1;
     }
-    Move(int x, int y) {
+    __host__ __device__ Move(int x, int y) {
         this->x = x;
         this->y = y;        
     }
-    Move(const Move &m) {
+    __host__ __device__ Move(const Move &m) {
         this->x = m.x;
         this->y = m.y;        
     }
-    bool operator==(const Move &other) const {
+    __host__ __device__ bool operator==(const Move &other) const {
         return this->x == other.x && this->y == other.y;
     }
-    bool operator!=(const Move &other) const {
+    __host__ __device__ bool operator!=(const Move &other) const {
         return !(*this == other);
     }
-    ~Move() {}
+    __host__ __device__ ~Move() {}
 };
 
 #endif

@@ -78,7 +78,6 @@ Node *Node::searchScore() {
         }
 
         int i = rand() % unvisited_children.size();
-        // fprintf(stderr, "Expanding child: (%d, %d)\n", moves[i].x, moves[i].y);
         return addChild(unvisited_children[i]);
     }
     else if (!terminal) {
@@ -91,9 +90,6 @@ Node *Node::searchScore() {
             float exploit = (float) -n->winDiff / n->numSims;
             float explore = (float) sqrt(log((float)numSims) / n->numSims);
             float score = exploit + CP * explore;
-            // fprintf(stderr, "Exploit: %f\t Explore: %f\n", exploit, explore);
-            // float score = (float)n->winDiff / n->numSims
-            //     + CP * sqrt(log((float)numSims) / (float)n->numSims);
             if (!bestChild || score > bestScore) {
                 bestScore = score;
                 bestChild = n;
