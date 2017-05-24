@@ -200,11 +200,16 @@ int expandGameTreeGpu(Node &root, int ms) {
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-    
-    // Allocate memory on GPU
+
+    // // Allocate memory on GPU
+    try {
+        gpuErrchk(cudaMalloc(&d_rands,
+            turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
+    }
+    catch(std::bad_alloc&) {
+        fprintf(stderr, "bad_alloc exception handled in cudaMalloc.\n");
+    }
     gpuErrchk(cudaMalloc(&d_winDiff, 1 * sizeof(int)));
-    gpuErrchk(cudaMalloc(&d_rands,
-        turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
     gpuErrchk(cudaMallocHost(&winDiff, 1 * sizeof(int)));
 
     Node *nGpu = nullptr;
@@ -212,13 +217,18 @@ int expandGameTreeGpu(Node &root, int ms) {
     // CPU simulation variables
     Node *nCpu;
     int cpuOutcome;
-    Move *moves = new Move[MAX_NUM_MOVES];
-    
+    Move *moves;
+    try {
+        moves = new Move[MAX_NUM_MOVES];
+    }
+    catch(std::bad_alloc&) {
+        fprintf(stderr, "bad_alloc exception handled in new Move[].\n");
+    }
     int numIters = 0;
     
     // Main loop
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        if (false) { // cudaStreamQuery(stream) == cudaSuccess) {
+        if (cudaStreamQuery(stream) == cudaSuccess) {
             // Update using the last result
             if (nGpu) {
                 nGpu->updateSim(GPU_SIMS_PER_ITER-1, *winDiff);
@@ -238,7 +248,12 @@ int expandGameTreeGpu(Node &root, int ms) {
             }
         }
         else {
-            nCpu = root.searchScore();
+            // try {
+                nCpu = root.searchScore();
+            // }
+            // catch(std::bad_alloc&) {
+            //     fprintf(stderr, "bad_alloc exception handled in searchScore.\n");
+            // }
             cpuOutcome = simulateNode(nCpu, moves);
             nCpu->updateSim(1, cpuOutcome);
         }
@@ -260,10 +275,20 @@ int expandGameTreeGpu(Node &root, int ms) {
     // Free memory
     curandDestroyGenerator(gen);
     cudaStreamDestroy(stream);
-    gpuErrchk(cudaFree(d_rands));
+    try {
+        gpuErrchk(cudaFree(d_rands));
+    }
+    catch(std::bad_alloc&) {
+        fprintf(stderr, "bad_alloc exception handled in cudaFree.\n");
+    }
     gpuErrchk(cudaFree(d_winDiff));
     gpuErrchk(cudaFreeHost(winDiff));
-    delete[] moves;
+    try {
+        delete[] moves;
+    }
+    catch(std::bad_alloc&) {
+        fprintf(stderr, "bad_alloc exception handled in delete[] moves.\n");
+    }
 
     return numIters;
 }

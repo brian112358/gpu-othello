@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdio>
 #include <vector>
+#include <cassert>
 #include <cstdlib>
 #include <cmath>
 #include <ctime>
@@ -30,11 +31,8 @@ Player::Player(Side side) {
  */
 Player::~Player() {
     delete board;
+    if (root) delete root;
 }
-
-// #define NUM_ITERS 10000
-// #define CPU_SIMS_PER_ITER 1
-// #define GPU_SIMS_PER_ITER 128
 
 Move *Player::doMove(Move *opponentsMove, int msLeft) {
     fprintf(stderr, "msLeft: %d\n", msLeft);
@@ -45,13 +43,13 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
 
     // int timeBudgetMs = msLeft / 60;
     // int movesLeft = board->countEmpty();
-    int timeBudgetMs = 4000;
+    int timeBudgetMs = 500;
 
     // board->printBoard();
     
     // If we have previous game tree info
     if (root) {
-        Node *new_root = root->searchBoard(*board, 2);
+        Node *new_root = root->searchBoard(*board, this->side, 2);
         if (new_root) {
             // Remove new_root from the old game tree
             for (uint i = 0; i < new_root->parent->children.size(); i++) {
@@ -62,6 +60,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
             new_root->parent = nullptr;
             delete root;
             root = new_root;
+            assert (root->side == this->side);
             fprintf(stderr, "Saved %d old simulations\n", root->numSims);
         }
         else {
@@ -72,12 +71,19 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     else {
         root = new Node(*board, nullptr, this->side);
     }
+    // delete root;
+    // root = new Node(*board, nullptr, this->side);
     
-    #ifdef GPU_ON
-        fprintf(stderr, "Ran %d iterations\n", expandGameTreeGpu(*root, timeBudgetMs));
-    #else
-        expandGameTree(*root, timeBudgetMs);
-    #endif
+    // try {
+        #ifdef GPU_ON
+            fprintf(stderr, "Ran %d iterations\n", expandGameTreeGpu(*root, timeBudgetMs));
+        #else
+            expandGameTree(*root, timeBudgetMs);
+        #endif
+    // }
+    // catch(std::bad_alloc&) {
+    //     fprintf(stderr, "bad_alloc exception handled in doMove.\n");
+    // }
 
     Move *move = new Move();
     while (!root->getBestMove(move)) {

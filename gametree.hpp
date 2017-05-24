@@ -31,7 +31,7 @@ class Node {
     // node itself will be returned using the output variable expandNode.
     Node *searchScore();
 
-    Node *searchBoard(Board b, int depth);
+    Node *searchBoard(Board b, Side s, int depth);
 
     void updateSim(int numSims, int winDiff);
 

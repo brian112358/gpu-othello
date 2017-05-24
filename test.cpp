@@ -17,7 +17,9 @@ int main(int argc, char *argv[]) {
     while (!b.isDone()) {
 		m[idx] = player[idx]->doMove(m[(idx+1)%2], 300000);
 		// b.printBoard();
-		if (m[idx]) assert(b.doMove(*m[idx], idx? WHITE:BLACK));
+		if (m[idx] && *m[idx] != Move(-1, -1)) {
+            assert(b.doMove(*m[idx], idx? WHITE:BLACK));
+        }
 		idx = (idx+1)%2;
 		if (m[idx]) {
 			delete m[idx];
