@@ -23,7 +23,7 @@ class Move {
     }
     __host__ __device__ Move(const Move &m) {
         this->x = m.x;
-        this->y = m.y;        
+        this->y = m.y;
     }
     __host__ __device__ bool operator==(const Move &other) const {
         return this->x == other.x && this->y == other.y;

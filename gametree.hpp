@@ -12,6 +12,13 @@ class Node {
   public:
     Side side;
     Board board;
+    Node *parent;
+    bool terminal;
+    bool fullyExpanded;
+    std::vector<Move> moves;
+    int winDiff;
+    int numSims;
+    std::vector<Node*> children;
 
     Node(Board b, Node *parent, Side side);
     ~Node();
@@ -24,19 +31,12 @@ class Node {
     // node itself will be returned using the output variable expandNode.
     Node *searchScore();
 
+    Node *searchBoard(Board b, int depth);
+
     void updateSim(int numSims, int winDiff);
 
     // Given simulations so far, return move with most number of simulations.
     bool getBestMove(Move *m);
-
-  private:
-    bool terminal;
-    bool fullyExpanded;
-    Node *parent;
-    std::vector<Move> moves;
-    std::vector<Node*> children;
-    int winDiff;
-    int numSims;
 };
 
 #endif

@@ -12,21 +12,24 @@ GENCODE_FLAGS = -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,cod
 CUDA_LIB_PATH := $(CUDA_LIB_PATH)64
 LDFLAGS       = -L$(CUDA_LIB_PATH) -lcudart -lcuda -lcufft -lcurand
 CCFLAGS       = -std=c++11 -m64 -Wall -pedantic -O3
-NVCCFLAGS     = --std=c++11 -x cu -m64 -lcudart -lcuda -lcufft -lcurand -O3
+NVCCFLAGS     = --std=c++11 -x cu -m64 -lcudart -lcuda -lcufft -lcurand -O3 -dc
 
 OBJS        = board.o simulate.o gametree.o player.o
 PLAYERNAME  = gpu-othello
 
-all: $(PLAYERNAME) testgame
+all: $(PLAYERNAME) testgame test
 
-$(PLAYERNAME): $(OBJS) wrapper.o
+$(PLAYERNAME): gpuCode.o $(OBJS) wrapper.cpp
 	$(CC) $^ -o $@ $(CCFLAGS) $(LDFLAGS) -I$(CUDA_INC_PATH)
 
-testgame: testgame.o
+testgame: gpuCode.o $(OBJS) testgame.cpp
 	$(CC) $^ -o $@ $(CCFLAGS) $(LDFLAGS) -I$(CUDA_INC_PATH)
 
-test: $(OBJS) test.cpp
+test: gpuCode.o $(OBJS) test.cpp
 	$(CC) $^ -o $@ $(CCFLAGS) $(LDFLAGS) -I$(CUDA_INC_PATH)
+
+gpuCode.o: $(OBJS)
+	$(NVCC) $(GENCODE_FLAGS) -dlink $^ -o $@
 
 %.o: %.cpp
 	$(NVCC) $(NVCCFLAGS) $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) -o $@ -c $<

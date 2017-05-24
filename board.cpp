@@ -155,6 +155,19 @@ int Board::countPieces() {
     return count(getOccupied());
 }
 
+__host__ __device__
+int Board::countEmpty() {
+    return count(getEmpty());
+}
+
+__host__ __device__ bool Board::operator==(const Board &other) const {
+    return this->occupied[0] == other.occupied[0] &&
+        this->occupied[1] == other.occupied[1];
+}
+__host__ __device__ bool Board::operator!=(const Board &other) const {
+    return !(*this == other);
+}
+
 void Board::printBoard() {
     fprintf(stderr, "  01234567\n");
     for (int y = 0; y < 8; y++) {

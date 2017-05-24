@@ -3,6 +3,7 @@
 
 #include "common.hpp"
 #include "board.hpp"
+#include "gametree.hpp"
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
@@ -17,6 +18,7 @@ public:
 
 private:
     Side side;  // Stores the side (BLACK/WHITE) the player is on
+    Node *root; // Root of the game tree
 };
 
 #endif

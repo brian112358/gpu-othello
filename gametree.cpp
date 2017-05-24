@@ -23,6 +23,7 @@ Node::Node(Board b, Node *parent, Side side) {
     if (numMoves == 0) {
         if (!board.isDone()) {
             fullyExpanded = false;
+            terminal = false;
             moves.push_back(Move(-1, -1));
             children.resize(1);
         }
@@ -53,6 +54,23 @@ Node *Node::addChild(int i) {
     }
     children[i] = new Node(b, this, OTHER(side));
     return children[i];
+}
+
+// Searches two-depth down 
+Node *Node::searchBoard(Board b, int depth) {
+    if (depth < 0) {
+        return nullptr;
+    }
+    if (this->board == b) {
+        return this;
+    }
+    for (Node *n : children) {
+        if (n) {
+            Node *result = n->searchBoard(b, depth-1);
+            if (result) return result;
+        }
+    }
+    return nullptr;
 }
 
 Node *Node::searchScore() {
@@ -142,7 +160,7 @@ bool Node::getBestMove(Move *m) {
     }
 
     *m = bestScoreMove;
-    fprintf(stderr, "Played (%d, %d): %f, %d\n",
-        bestScoreMove.x, bestScoreMove.y, bestScore, bestMoveFreq);
+    fprintf(stderr, "Played (%d, %d): %f (%d/%d)\n",
+        bestScoreMove.x, bestScoreMove.y, bestScore, bestMoveFreq, numSims);
     return true;
 }

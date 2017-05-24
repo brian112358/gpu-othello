@@ -3,8 +3,8 @@
 
 #include "gametree.hpp"
 
-void simulateNode(Node *n, int numSims);
+int expandGameTree(Node &root, int ms);
 
-void simulateNodeGpu(Node *n, int numSims);
+int expandGameTreeGpu(Node &root, int ms);
 
 #endif
