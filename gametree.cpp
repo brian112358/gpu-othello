@@ -74,7 +74,7 @@ Node *Node::searchBoard(Board b, Side s, int depth) {
     return nullptr;
 }
 
-Node *Node::searchScore(bool expand) {
+Node *Node::searchScore(bool expand, bool useMinimax) {
     if (terminal) {
         // If this is a terminal and fully expanded node, then just simulate
         // from this node
@@ -111,13 +111,11 @@ Node *Node::searchScore(bool expand) {
             assert(n->numSims > 0);
             assert(n->parent == this);
             // Convert exploit to [-numSims, numSims] -> [0, 1]
-            // and negate because it's the opponent's winDiff
-            // float exploit = (float) (n->numSims - n->winDiff) / (2 * n->numSims);
-            float exploit = 0.5 - n->miniMaxScore/2;
-            if (-1e-6 > exploit || exploit > 1 + 1e-6) {
-                fprintf(stderr, "Exploit is: %f\n", exploit);
-                assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
-            }
+            // and negate because it's the opponent's score
+            float exploit = useMinimax?
+                            (0.5 - n->miniMaxScore/2) :
+                            ((float) (n->numSims - n->winDiff) / (2 * n->numSims));
+            assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
             float explore = sqrt(2 * log((float)numSims) / n->numSims);
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
@@ -130,7 +128,7 @@ Node *Node::searchScore(bool expand) {
     if (!bestChild) {
         return this;
     }
-    return bestChild->searchScore(expand);
+    return bestChild->searchScore(expand, useMinimax);
 }
 
 
@@ -145,7 +143,7 @@ void Node::updateSim(int numSims, int winDiff) {
     assert(numDescendants != 0);
 
     // If this node doesn't have any children, then set miniMaxScore to 
-    // this->winDiff / this->numSims.
+    // the win rate (possibly add heuristic here?)
     if (numDescendants == 1) {
         this->miniMaxScore = (float) this->winDiff / this->numSims;
     }
@@ -163,7 +161,7 @@ void Node::updateSim(int numSims, int winDiff) {
 }
 
 
-bool Node::getBestMove(Move *m) {
+bool Node::getBestMove(Move *m, bool useMinimax) {
     float bestScore = -FLT_MAX;
     Move bestScoreMove(-1, -1);
     int bestMoveFreq = 0;
@@ -173,8 +171,7 @@ bool Node::getBestMove(Move *m) {
     for (uint i = 0; i < numMoves; i++) {
         Node *n = children[i];
         if (n) {
-            // float score = (float) -n->winDiff / n->numSims;
-            float score = -n->miniMaxScore;
+            float score = useMinimax? (-n->miniMaxScore) : ((float) -n->winDiff / n->numSims);
             if (score > bestScore) {
                 bestScoreMove = moves[i];
                 bestScore = score;

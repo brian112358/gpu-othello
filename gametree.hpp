@@ -35,7 +35,7 @@ class Node {
 
     // Search all descendants of this node for the best node to expand
     // based on UCT score.
-    Node *searchScore(bool expand);
+    Node *searchScore(bool expand, bool useMinimax);
 
     Node *searchBoard(Board b, Side s, int depth);
 
@@ -43,7 +43,7 @@ class Node {
 
 
     // Given simulations so far, return move with most number of simulations.
-    bool getBestMove(Move *m);
+    bool getBestMove(Move *m, bool useMinimax);
 
   private:
     // Increment the number of descendants for all ancestors of this node. 

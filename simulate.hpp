@@ -3,8 +3,8 @@
 
 #include "gametree.hpp"
 
-int expandGameTree(Node *root, int ms);
+int expandGameTree(Node *root, bool useMinimax, int ms);
 
-int expandGameTreeGpu(Node *root, int ms);
+int expandGameTreeGpu(Node *root, bool useMinimax, int ms);
 
 #endif

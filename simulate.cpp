@@ -57,7 +57,7 @@ int simulateNode(Node *n, Move *moves) {
     return (pieceDiff > 0)? 1:( (pieceDiff == 0)? 0:-1);
 }
 
-int expandGameTree(Node *root, int ms) {
+int expandGameTree(Node *root, bool useMinimax, int ms) {
     clock_t startTime = clock();
 
     Move moves[MAX_NUM_MOVES];
@@ -66,7 +66,7 @@ int expandGameTree(Node *root, int ms) {
     int outcome;
 
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        n = root->searchScore(root->numDescendants < MAX_NUM_NODES);
+        n = root->searchScore(root->numDescendants < MAX_NUM_NODES, useMinimax);
         outcome = simulateNode(n, moves);
         n->updateSim(1, outcome);
         numSims++;
@@ -139,7 +139,10 @@ void cudaSimulateGameKernel(Board board, Side side, int numSims,
         atomicAdd(winDiff, partial_winDiff[0]);
 }
 
-#define CPU_SIMS_PER_ITER 4
+#define CPU_SIMS_PER_ITER 1
+
+#define GPU_KERNEL_LAUNCH_SPACING 16
+#define GPU_NUM_KERNELS 16
 #define GPU_SIMS_PER_ITER 1024
 #define NBLOCKS 8
 #define NTHREADS 128
@@ -163,16 +166,10 @@ void startNodeSimulationGpu(Node *n, int *winDiff, int *d_winDiff,
         1 * sizeof(int), cudaMemcpyDeviceToHost, stream);
 }
 
-int expandGameTreeGpu(Node *root, int ms) {
+int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
     clock_t startTime = clock();
 
     const int turnsLeft = root->board.countEmpty();
-
-    // Random numbers used to calculate random game states taken
-    float *d_rands;
-
-    int *winDiff;
-    int *d_winDiff;
 
     cudaError err;
 
@@ -183,46 +180,62 @@ int expandGameTreeGpu(Node *root, int ms) {
         exit( -1 );
     }
 
-    curandGenerator_t gen;
-    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+    cudaStream_t streams[GPU_NUM_KERNELS];
 
-    err = cudaGetLastError();
-    if ( cudaSuccess != err ) {
-        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
-                 __FILE__, __LINE__, cudaGetErrorString( err ) );
-        exit( -1 );
+    Node *nGpu[GPU_NUM_KERNELS];
+    int *winDiff[GPU_NUM_KERNELS];
+    int *d_winDiff[GPU_NUM_KERNELS];
+
+    // Random numbers used to calculate random game states taken
+    float *d_rands[GPU_NUM_KERNELS];
+    curandGenerator_t gen[GPU_NUM_KERNELS];
+
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        cudaStreamCreate(&streams[i]);
+
+        curandCreateGenerator(&gen[i], CURAND_RNG_PSEUDO_DEFAULT);
+        curandSetStream(gen[i], streams[i]);
+
+        // // Allocate memory on GPU
+        gpuErrchk(cudaMalloc(&d_rands[i],
+            turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
+        gpuErrchk(cudaMalloc(&d_winDiff[i], 1 * sizeof(int)));
+        gpuErrchk(cudaMallocHost(&winDiff[i], 1 * sizeof(int)));
+
+        nGpu[i] = nullptr;
     }
-
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
-    // // Allocate memory on GPU
-    gpuErrchk(cudaMalloc(&d_rands,
-        turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
-    gpuErrchk(cudaMalloc(&d_winDiff, 1 * sizeof(int)));
-    gpuErrchk(cudaMallocHost(&winDiff, 1 * sizeof(int)));
-
-    Node *nGpu = nullptr;
     
     // CPU simulation variables
     Node *nCpu;
     int cpuOutcome;
     Move moves[MAX_NUM_MOVES];
     int numIters = 0;
+
+    // uint maxItersBtwKernelLaunches = 0;
+    uint itersSinceLastKernelLaunch = 0;
+
+    // Current GPU stream
+    uint s = 0;
     
     // Main loop
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        if (cudaStreamQuery(stream) == cudaSuccess) {
-            // Update using the last result
-            if (nGpu) {
-                nGpu->updateSim(GPU_SIMS_PER_ITER-1, *winDiff);
+        if (itersSinceLastKernelLaunch >= GPU_KERNEL_LAUNCH_SPACING &&
+            cudaStreamQuery(streams[s]) == cudaSuccess) {
+            // if (itersSinceLastKernelLaunch > maxItersBtwKernelLaunches)
+            //     maxItersBtwKernelLaunches = itersSinceLastKernelLaunch;
+            // Update using the last result from this stream
+            if (nGpu[s]) {
+                nGpu[s]->updateSim(GPU_SIMS_PER_ITER-1, *winDiff[s]);
             }
-            nGpu = root->searchScore(root->numDescendants < MAX_NUM_NODES);
+            // Get a new node to start a simulation from
+            nGpu[s] = root->searchScore(root->numDescendants < MAX_NUM_NODES,
+                                        useMinimax);
             // Put dummy result at node
-            nGpu->updateSim(1, 0);
+            nGpu[s]->updateSim(1, 0);
             
-            startNodeSimulationGpu(nGpu, winDiff, d_winDiff,
-                d_rands, gen, turnsLeft, NBLOCKS, NTHREADS, stream);
+            // Start simulation
+            startNodeSimulationGpu(nGpu[s], winDiff[s], d_winDiff[s],
+                d_rands[s], gen[s], turnsLeft, NBLOCKS, NTHREADS, streams[s]);
             // cudaStreamSynchronize(stream);
 
             err = cudaGetLastError();
@@ -231,22 +244,31 @@ int expandGameTreeGpu(Node *root, int ms) {
                          __FILE__, __LINE__, cudaGetErrorString( err ) );
                 exit( -1 );
             }
+            s = (s+1) % GPU_NUM_KERNELS;
+            itersSinceLastKernelLaunch = 0;
         }
         else {
-            nCpu = root->searchScore(root->numDescendants < MAX_NUM_NODES);
+            nCpu = root->searchScore(root->numDescendants < MAX_NUM_NODES,
+                                    useMinimax);
             cpuOutcome = 0;
             for (uint i = 0; i < CPU_SIMS_PER_ITER; i++) {
                 cpuOutcome += simulateNode(nCpu, moves);
             }
             nCpu->updateSim(CPU_SIMS_PER_ITER, cpuOutcome);
+            itersSinceLastKernelLaunch++;
         }
 
         numIters++;
     }
 
-    // Finish the last GPU call
-    cudaStreamSynchronize(stream);
-    if (nGpu) nGpu->updateSim(GPU_SIMS_PER_ITER-1, *winDiff);
+    // Finish the last GPU calls
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        uint idx = (s+i)%GPU_NUM_KERNELS;
+        cudaStreamSynchronize(streams[idx]);
+        if (nGpu[idx]) {
+            nGpu[idx]->updateSim(GPU_SIMS_PER_ITER-1, *winDiff[idx]);
+        }
+    }
 
     err = cudaGetLastError();
     if ( cudaSuccess != err ) {
@@ -256,16 +278,20 @@ int expandGameTreeGpu(Node *root, int ms) {
     }
 
     // Free memory
-    curandDestroyGenerator(gen);
-    cudaStreamDestroy(stream);
-    try {
-        gpuErrchk(cudaFree(d_rands));
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        curandDestroyGenerator(gen[i]);
+        cudaStreamDestroy(streams[i]);
+        gpuErrchk(cudaFree(d_rands[i]));
+        gpuErrchk(cudaFree(d_winDiff[i]));
+        gpuErrchk(cudaFreeHost(winDiff[i]));
     }
-    catch(std::bad_alloc&) {
-        fprintf(stderr, "bad_alloc exception handled in cudaFree.\n");
+
+    err = cudaGetLastError();
+    if ( cudaSuccess != err ) {
+        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
+                 __FILE__, __LINE__, cudaGetErrorString( err ) );
+        exit( -1 );
     }
-    gpuErrchk(cudaFree(d_winDiff));
-    gpuErrchk(cudaFreeHost(winDiff));
 
     return numIters;
 }

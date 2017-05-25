@@ -14,6 +14,9 @@
 // Comment out to use CPU only
 #define GPU_ON
 
+// Start using minimax at this turn
+#define MINIMAX_TURN 0
+
 const float time_alloc[60] =
 {
     0.0050, 0.0096, 0.0148, 0.0148, 0.0148, 0.0167,
@@ -103,18 +106,20 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
         return move;
     }
 
+    bool useMinimax = moveNumber > MINIMAX_TURN;
+
     #ifdef GPU_ON
-        expandGameTreeGpu(root, timeBudgetMs);
+        expandGameTreeGpu(root, useMinimax, timeBudgetMs);
     #else
-        expandGameTree(root, timeBudgetMs);
+        expandGameTree(root, useMinimax, timeBudgetMs);
     #endif
 
     move = new Move();
-    while (!root->getBestMove(move)) {
+    while (!root->getBestMove(move, useMinimax)) {
             #ifdef GPU_ON
-            expandGameTreeGpu(root, timeBudgetMs/10);
+            expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
         #else
-            expandGameTree(root, timeBudgetMs/10);
+            expandGameTree(root, useMinimax, timeBudgetMs/10);
         #endif
     }
 
