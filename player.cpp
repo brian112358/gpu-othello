@@ -14,6 +14,20 @@
 // Comment out to use CPU only
 #define GPU_ON
 
+const float time_alloc[60] =
+{
+    0.0050, 0.0096, 0.0148, 0.0148, 0.0148, 0.0167,
+    0.0167, 0.0176, 0.0177, 0.0177, 0.0177, 0.0177,
+    0.0206, 0.0212, 0.0216, 0.0216, 0.0235, 0.0245,
+    0.0245, 0.0245, 0.0274, 0.0280, 0.0286, 0.0304,
+    0.0313, 0.0313, 0.0343, 0.0352, 0.0374, 0.0382,
+    0.0411, 0.0421, 0.0443, 0.0450, 0.0479, 0.0518,
+    0.0547, 0.0582, 0.0623, 0.0655, 0.0715, 0.0746,
+    0.0798, 0.0864, 0.0953, 0.1049, 0.1156, 0.1283,
+    0.1451, 0.1590, 0.1805, 0.2015, 0.2127, 0.2353,
+    0.2681, 0.3067, 0.3667, 0.4610, 0.6319, 0.9005
+};
+
 /*
  * Constructor for the player; initialize everything here. The side your AI is
  * on (BLACK or WHITE) is passed in as "side". The constructor must finish 
@@ -24,6 +38,7 @@ Player::Player(Side side) {
     root = nullptr;
     this->side = side;
     srand(time(NULL));
+    // srand(42);
 }
 
 /*
@@ -35,18 +50,18 @@ Player::~Player() {
 }
 
 Move *Player::doMove(Move *opponentsMove, int msLeft) {
-    fprintf(stderr, "msLeft: %d\n", msLeft);
     if (opponentsMove) {
-        // fprintf(stderr, "Opponent move: (%d, %d)\n", opponentsMove->x, opponentsMove->y);
         board->doMove(*opponentsMove, OTHER(this->side));
     }
 
-    // int timeBudgetMs = msLeft / 60;
-    // int movesLeft = board->countEmpty();
-    int timeBudgetMs = 500;
-
-    // board->printBoard();
+    const int moveNumber = board->countPieces() - 4;
+    assert(0 <= moveNumber && moveNumber <= 60);
+    int timeBudgetMs = msLeft < 0? 4000:(time_alloc[moveNumber] * msLeft);
+    if (timeBudgetMs < 500) timeBudgetMs = 500;
     
+    fprintf(stderr, "Allocated %d of %d ms on move %d\n",
+        timeBudgetMs, msLeft, moveNumber);
+
     // If we have previous game tree info
     if (root) {
         Node *new_root = root->searchBoard(*board, this->side, 2);
@@ -71,33 +86,41 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     else {
         root = new Node(*board, nullptr, this->side);
     }
-    // delete root;
-    // root = new Node(*board, nullptr, this->side);
-    
-    // try {
-        #ifdef GPU_ON
-            fprintf(stderr, "Ran %d iterations\n", expandGameTreeGpu(*root, timeBudgetMs));
-        #else
-            expandGameTree(*root, timeBudgetMs);
-        #endif
-    // }
-    // catch(std::bad_alloc&) {
-    //     fprintf(stderr, "bad_alloc exception handled in doMove.\n");
-    // }
 
-    Move *move = new Move();
+    Move *move;
+    Move moves[MAX_NUM_MOVES];
+    int numMoves = board->getMovesAsArray(moves, this->side);
+
+    // Early exits:
+    if (numMoves == 0) {
+        fprintf(stderr, "[No moves]\n");
+        return nullptr;
+    }
+    else if (numMoves == 1) {
+        move = new Move(moves[0]);
+        board->doMove(*move, this->side);
+        fprintf(stderr, "[1 move]: (%d, %d)\n", move->x, move->y);
+        return move;
+    }
+
+    #ifdef GPU_ON
+        expandGameTreeGpu(root, timeBudgetMs);
+    #else
+        expandGameTree(root, timeBudgetMs);
+    #endif
+
+    move = new Move();
     while (!root->getBestMove(move)) {
             #ifdef GPU_ON
-            expandGameTreeGpu(*root, timeBudgetMs/10);
+            expandGameTreeGpu(root, timeBudgetMs/10);
         #else
-            expandGameTree(*root, timeBudgetMs/10);
+            expandGameTree(root, timeBudgetMs/10);
         #endif
     }
 
+    fprintf(stderr, "Game tree now has %d nodes\n", root->numDescendants);
+
     board->doMove(*move, this->side);
-
-
-    // fprintf(stderr, "My move: (%d, %d)\n", move->x, move->y);
 
     return move;
 }

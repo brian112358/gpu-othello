@@ -9,7 +9,8 @@
 #include <cuda_runtime.h>
 #include <curand.h>
 
-#define MAX_NUM_MOVES 32
+// Experimentally verified to stay within 768MB memory limit
+#define MAX_NUM_NODES 600000
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
@@ -56,21 +57,20 @@ int simulateNode(Node *n, Move *moves) {
     return (pieceDiff > 0)? 1:( (pieceDiff == 0)? 0:-1);
 }
 
-int expandGameTree(Node &root, int ms) {
-    clock_t startTime = clock();    
+int expandGameTree(Node *root, int ms) {
+    clock_t startTime = clock();
 
-    Move *moves = new Move[MAX_NUM_MOVES];
+    Move moves[MAX_NUM_MOVES];
     Node *n;
     int numSims = 0;
     int outcome;
 
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        n = root.searchScore();
+        n = root->searchScore(root->numDescendants < MAX_NUM_NODES);
         outcome = simulateNode(n, moves);
         n->updateSim(1, outcome);
         numSims++;
     }
-    delete[] moves;
     return numSims;
 }
 
@@ -79,14 +79,11 @@ __global__
 void cudaSimulateGameKernel(Board board, Side side, int numSims,
     float *rands, int *winDiff) {
     // Shared memory for partial sums
-    extern __shared__ int shmem[];
+    extern __shared__ int partial_winDiff[];
 
     const uint tid = threadIdx.x;
     const uint idx = blockIdx.x * blockDim.x + tid;
     const uint total_threads = blockDim.x * gridDim.x;
-
-    int *partial_winDiff = &shmem[0];
-    Move *moves_arr = (Move*)&shmem[blockDim.x];
 
     int piecesDiff;
 
@@ -95,7 +92,7 @@ void cudaSimulateGameKernel(Board board, Side side, int numSims,
     uint moveIdx;
 
     Board b;
-    Move *moves;
+    Move moves[MAX_NUM_MOVES];
     Side simSide;
     int numPasses;
 
@@ -106,7 +103,6 @@ void cudaSimulateGameKernel(Board board, Side side, int numSims,
 
     for (uint i = idx; i < numSims; i += total_threads) {
         b = board;
-        moves = &moves_arr[MAX_NUM_MOVES * tid];
         simSide = side;
         moveNum = 0;
         numPasses = 0;
@@ -143,8 +139,9 @@ void cudaSimulateGameKernel(Board board, Side side, int numSims,
         atomicAdd(winDiff, partial_winDiff[0]);
 }
 
-#define GPU_SIMS_PER_ITER 4096
-#define NBLOCKS 32
+#define CPU_SIMS_PER_ITER 2
+#define GPU_SIMS_PER_ITER 1024
+#define NBLOCKS 8
 #define NTHREADS 128
 
 void startNodeSimulationGpu(Node *n, int *winDiff, int *d_winDiff,
@@ -158,9 +155,7 @@ void startNodeSimulationGpu(Node *n, int *winDiff, int *d_winDiff,
     cudaMemset(d_winDiff, 0, 1 * sizeof(int));
 
     // Run simulation kernel
-    cudaSimulateGameKernel<<<nBlocks, nThreads,
-        nThreads * sizeof(int) + MAX_NUM_MOVES * nThreads * sizeof(Move),
-        stream>>>(
+    cudaSimulateGameKernel<<<nBlocks, nThreads, nThreads*sizeof(int), stream>>>(
             n->board, n->side, GPU_SIMS_PER_ITER, d_rands, d_winDiff);
 
     // Copy result back to CPU
@@ -168,10 +163,10 @@ void startNodeSimulationGpu(Node *n, int *winDiff, int *d_winDiff,
         1 * sizeof(int), cudaMemcpyDeviceToHost, stream);
 }
 
-int expandGameTreeGpu(Node &root, int ms) {
+int expandGameTreeGpu(Node *root, int ms) {
     clock_t startTime = clock();
 
-    const int turnsLeft = root.board.countEmpty();
+    const int turnsLeft = root->board.countEmpty();
 
     // Random numbers used to calculate random game states taken
     float *d_rands;
@@ -217,13 +212,7 @@ int expandGameTreeGpu(Node &root, int ms) {
     // CPU simulation variables
     Node *nCpu;
     int cpuOutcome;
-    Move *moves;
-    try {
-        moves = new Move[MAX_NUM_MOVES];
-    }
-    catch(std::bad_alloc&) {
-        fprintf(stderr, "bad_alloc exception handled in new Move[].\n");
-    }
+    Move moves[MAX_NUM_MOVES];
     int numIters = 0;
     
     // Main loop
@@ -233,7 +222,8 @@ int expandGameTreeGpu(Node &root, int ms) {
             if (nGpu) {
                 nGpu->updateSim(GPU_SIMS_PER_ITER-1, *winDiff);
             }
-            nGpu = root.searchScore();
+            nGpu = root->searchScore(root->numDescendants < MAX_NUM_NODES);
+            // Put dummy result at node
             nGpu->updateSim(1, 0);
             
             startNodeSimulationGpu(nGpu, winDiff, d_winDiff,
@@ -248,14 +238,12 @@ int expandGameTreeGpu(Node &root, int ms) {
             }
         }
         else {
-            // try {
-                nCpu = root.searchScore();
-            // }
-            // catch(std::bad_alloc&) {
-            //     fprintf(stderr, "bad_alloc exception handled in searchScore.\n");
-            // }
-            cpuOutcome = simulateNode(nCpu, moves);
-            nCpu->updateSim(1, cpuOutcome);
+            nCpu = root->searchScore(root->numDescendants < MAX_NUM_NODES);
+            cpuOutcome = 0;
+            for (uint i = 0; i < CPU_SIMS_PER_ITER; i++) {
+                cpuOutcome += simulateNode(nCpu, moves);
+            }
+            nCpu->updateSim(CPU_SIMS_PER_ITER, cpuOutcome);
         }
 
         numIters++;
@@ -283,12 +271,6 @@ int expandGameTreeGpu(Node &root, int ms) {
     }
     gpuErrchk(cudaFree(d_winDiff));
     gpuErrchk(cudaFreeHost(winDiff));
-    try {
-        delete[] moves;
-    }
-    catch(std::bad_alloc&) {
-        fprintf(stderr, "bad_alloc exception handled in delete[] moves.\n");
-    }
 
     return numIters;
 }

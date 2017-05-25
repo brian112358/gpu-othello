@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     cout << "Init done" << endl;
     cout.flush();
     
-    int moveX, moveY, msLeft;    
+    int moveX, moveY, msLeft;
 
     // Get opponent's move and time left for player each turn.
     while (cin >> moveX >> moveY >> msLeft) {

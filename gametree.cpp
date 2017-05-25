@@ -6,28 +6,24 @@
 #include <cassert>
 #include <cfloat>
 
-Node::Node(Board b, Node *parent, Side side) {
-    this->board = b;
-    this->parent = parent;
-    this->side = side;
-    winDiff = 0;
-    numSims = 0;
+Node::Node(Board b, Node *parent, Side side) :
+    board(b), parent(parent), side(side),
+    winDiff(0), numSims(0), numDescendants(0) {
 
     if ((unsigned long long) this > 0xffffffff) {
         fprintf(stderr, "Weird node pointer: %p\n", this);
     }
 
-    Move *movesArr = new Move[32];
+    Move movesArr[MAX_NUM_MOVES];
     int numMoves = b.getMovesAsArray(movesArr, side);
-    assert( 0 <= numMoves && numMoves < 32);
-    moves = std::vector<Move>(movesArr, movesArr + numMoves);
+    assert( 0 <= numMoves && numMoves < MAX_NUM_MOVES);
+    // moves = std::vector<Move>(movesArr, movesArr + numMoves);
     children.resize(numMoves, nullptr);
 
     if (numMoves == 0) {
         if (!board.isDone()) {
             fullyExpanded = false;
             terminal = false;
-            moves.push_back(Move(-1, -1));
             children.resize(1, nullptr);
         }
         else {
@@ -39,7 +35,6 @@ Node::Node(Board b, Node *parent, Side side) {
         terminal = false;
         fullyExpanded = false;
     }
-    delete[] movesArr;
 }
 
 Node::~Node() {
@@ -50,22 +45,20 @@ Node::~Node() {
 
 Node *Node::addChild(int i) {
     Board b = this->board;
-    Move m = moves[i];
+    Move moves[MAX_NUM_MOVES];
+    int numMoves = b.getMovesAsArray(moves, side);
+    assert(0 <= i && i <= numMoves);
     // If move is PASS do nothing
-    if (m != Move(-1, -1)) {
+    if (numMoves > 0) {
         b.doMove(moves[i], side);
     }
     assert (children[i] == nullptr);
-    // try {
-        children[i] = new Node(b, this, OTHER(side));
-    // }
-    // catch(std::bad_alloc&) {
-    //     fprintf(stderr, "bad_alloc exception handled in addChild new.\n");
-    // }
+    children[i] = new Node(b, this, OTHER(side));
+    children[i]->incrementNumDescendants();
     return children[i];
 }
 
-// Searches two-depth down 
+// Searches depth down 
 Node *Node::searchBoard(Board b, Side s, int depth) {
     if (depth < 0) {
         return nullptr;
@@ -82,81 +75,83 @@ Node *Node::searchBoard(Board b, Side s, int depth) {
     return nullptr;
 }
 
-Node *Node::searchScore() {
-    if (!fullyExpanded) {
-        // Then randomly expand one of the children
+Node *Node::searchScore(bool expand) {
+    if (terminal) {
+        // If this is a terminal and fully expanded node, then just simulate
+        // from this node
+        return this;
+    }
+
+    if (!fullyExpanded && expand) {
+        // If node is not fully expanded,
+        // then randomly expand one of the children
         std::vector<int> unvisited_children;
-        if (moves.size() == 1 && children.size() == 0) {
-            fullyExpanded = true;
-            unvisited_children.push_back(0);
-        }
-        else {
-            for (uint i = 0; i < moves.size(); i++) {
-                if (!children[i]) {
-                    unvisited_children.push_back(i);
-                }
-                else {
-                    assert(children[i]->numSims > 0);
-                }
+        for (uint i = 0; i < children.size(); i++) {
+            if (!children[i]) {
+                unvisited_children.push_back(i);
+            }
+            else {
+                assert(children[i]->numSims > 0);
             }
         }
         if (unvisited_children.size() == 1) {
             fullyExpanded = true;
         }
 
+        assert(unvisited_children.size() > 0);
+
         int i = rand() % unvisited_children.size();
-        Node *n;
-        // try {
-            n = addChild(unvisited_children[i]);
-        // }
-        // catch(std::bad_alloc&) {
-        //     fprintf(stderr, "bad_alloc exception handled in addChild.\n");
-        // }
-        return n;
+        return addChild(unvisited_children[i]);
     }
-    else if (!terminal) {
-        // Choose child based on UCT score
-        float bestScore = -1;
-        Node *bestChild = nullptr;
-        for (Node *n : children) {
-            assert( n );
-            assert( n->numSims > 0 );
-            float exploit = (float) -n->winDiff / n->numSims;
-            float explore = (float) sqrt(log((float)numSims) / n->numSims);
+
+    // Otherwise, choose child based on UCT score
+    float bestScore = -1;
+    Node *bestChild = nullptr;
+    for (Node *n : children) {
+        if (n) {
+            assert(n->numSims > 0);
+            assert(n->parent == this);
+            // Convert exploit to [-numSims, numSims] -> [0, 1]
+            // and negate because it's the opponent's winDiff
+            float exploit = (float) (n->numSims - n->winDiff) / (2 * n->numSims);
+            // assert (0 <= exploit && exploit <= 1);
+            float explore = sqrt(2 * log((float)numSims) / n->numSims);
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
                 bestScore = score;
                 bestChild = n;
             }
         }
-        if (!bestChild) {
-            fprintf(stderr, "No children\n");
-            return this;
-        }
-        return bestChild->searchScore();
     }
-    else {
-        // If this is a terminal and fully expanded node, then just simulate
-        // from this node
+    // If there are no eligible children, just return this
+    if (!bestChild) {
         return this;
     }
+    return bestChild->searchScore(expand);
+}
+
+
+void Node::incrementNumDescendants() {
+    numDescendants++;
+    if (parent) parent->incrementNumDescendants();
 }
 
 void Node::updateSim(int numSims, int winDiff) {
     this->winDiff += winDiff;
     this->numSims += numSims;
     // Negate number of wins 
-    if (parent) {
-        parent->updateSim(numSims, -winDiff);
-    }
+    if (parent) parent->updateSim(numSims, -winDiff);
 }
+
 
 bool Node::getBestMove(Move *m) {
     float bestScore = -FLT_MAX;
     Move bestScoreMove(-1, -1);
     int bestMoveFreq = 0;
     Move mostFrequentMove(-1, -1);
-    for (uint i = 0; i < moves.size(); i++) {
+    Move moves[MAX_NUM_MOVES];
+    int numMoves = board.getMovesAsArray(moves, side);
+    for (uint i = 0; i < numMoves; i++) {
         Node *n = children[i];
         if (n) {
             float score = (float) -n->winDiff / n->numSims;

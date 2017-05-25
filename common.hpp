@@ -10,6 +10,8 @@ enum Side {
 
 #define OTHER(x) (x == WHITE? BLACK:WHITE)
 
+#define MAX_NUM_MOVES 32
+
 class Move {
   public:
     int x, y;

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cassert>
+#include <unistd.h>
 
 #include "board.hpp"
 #include "common.hpp"
@@ -25,6 +26,7 @@ int main(int argc, char *argv[]) {
 			delete m[idx];
 			m[idx] = nullptr;
 		}
+        // usleep(100000);
     }
     delete player[0];
     delete player[1];

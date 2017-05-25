@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cassert>
 #include "board.hpp"
 
 __host__ __device__ int xyToIndex(int x, int y) { return 8 * y + x; }
@@ -99,6 +100,7 @@ int Board::getMovesAsArray(Move *output_moves, Side side) {
         #else
           idx = __builtin_ffsll(moves);
         #endif
+        assert(numMoves < 32);
         output_moves[numMoves] = indexToMove(idx-1);
         numMoves++;
     } while (moves &= moves-1); // reset LS1B
