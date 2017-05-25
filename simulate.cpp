@@ -139,7 +139,7 @@ void cudaSimulateGameKernel(Board board, Side side, int numSims,
         atomicAdd(winDiff, partial_winDiff[0]);
 }
 
-#define CPU_SIMS_PER_ITER 2
+#define CPU_SIMS_PER_ITER 4
 #define GPU_SIMS_PER_ITER 1024
 #define NBLOCKS 8
 #define NTHREADS 128
@@ -197,13 +197,8 @@ int expandGameTreeGpu(Node *root, int ms) {
     cudaStreamCreate(&stream);
 
     // // Allocate memory on GPU
-    try {
-        gpuErrchk(cudaMalloc(&d_rands,
-            turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
-    }
-    catch(std::bad_alloc&) {
-        fprintf(stderr, "bad_alloc exception handled in cudaMalloc.\n");
-    }
+    gpuErrchk(cudaMalloc(&d_rands,
+        turnsLeft * GPU_SIMS_PER_ITER * sizeof(float)));
     gpuErrchk(cudaMalloc(&d_winDiff, 1 * sizeof(int)));
     gpuErrchk(cudaMallocHost(&winDiff, 1 * sizeof(int)));
 

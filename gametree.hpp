@@ -8,6 +8,11 @@
 // Cp is a constant used for calculating a node's UCT score, choose 1/sqrt(2)
 #define CP 0.707
 
+// Store binary states in a single byte; following are the bitmasks
+// #define TERMINAL 0x01
+// #define FULLY_EXPANDED 0x02
+// #define UNEXPANDED 0x04
+
 class Node {
   public:
     Side side;
@@ -15,13 +20,14 @@ class Node {
     Node *parent;
     bool terminal;
     bool fullyExpanded;
-    // std::vector<Move> moves;
+
     std::vector<Node*> children;
 
     int winDiff;
     uint numSims;
 
     uint numDescendants;
+    float miniMaxScore;
 
     Node(Board b, Node *parent, Side side);
     ~Node();

@@ -8,7 +8,7 @@
 
 Node::Node(Board b, Node *parent, Side side) :
     board(b), parent(parent), side(side),
-    winDiff(0), numSims(0), numDescendants(0) {
+    winDiff(0), numSims(0), numDescendants(1), miniMaxScore(0) {
 
     if ((unsigned long long) this > 0xffffffff) {
         fprintf(stderr, "Weird node pointer: %p\n", this);
@@ -17,7 +17,6 @@ Node::Node(Board b, Node *parent, Side side) :
     Move movesArr[MAX_NUM_MOVES];
     int numMoves = b.getMovesAsArray(movesArr, side);
     assert( 0 <= numMoves && numMoves < MAX_NUM_MOVES);
-    // moves = std::vector<Move>(movesArr, movesArr + numMoves);
     children.resize(numMoves, nullptr);
 
     if (numMoves == 0) {
@@ -54,7 +53,7 @@ Node *Node::addChild(int i) {
     }
     assert (children[i] == nullptr);
     children[i] = new Node(b, this, OTHER(side));
-    children[i]->incrementNumDescendants();
+    incrementNumDescendants();
     return children[i];
 }
 
@@ -113,8 +112,12 @@ Node *Node::searchScore(bool expand) {
             assert(n->parent == this);
             // Convert exploit to [-numSims, numSims] -> [0, 1]
             // and negate because it's the opponent's winDiff
-            float exploit = (float) (n->numSims - n->winDiff) / (2 * n->numSims);
-            // assert (0 <= exploit && exploit <= 1);
+            // float exploit = (float) (n->numSims - n->winDiff) / (2 * n->numSims);
+            float exploit = 0.5 - n->miniMaxScore/2;
+            if (-1e-6 > exploit || exploit > 1 + 1e-6) {
+                fprintf(stderr, "Exploit is: %f\n", exploit);
+                assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
+            }
             float explore = sqrt(2 * log((float)numSims) / n->numSims);
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
@@ -139,6 +142,22 @@ void Node::incrementNumDescendants() {
 void Node::updateSim(int numSims, int winDiff) {
     this->winDiff += winDiff;
     this->numSims += numSims;
+    assert(numDescendants != 0);
+
+    // If this node doesn't have any children, then set miniMaxScore to 
+    // this->winDiff / this->numSims.
+    if (numDescendants == 1) {
+        this->miniMaxScore = (float) this->winDiff / this->numSims;
+    }
+    else {
+        this->miniMaxScore = -FLT_MAX;
+        for (Node *n : children) {
+            if (n && -n->miniMaxScore > this->miniMaxScore) {
+                this->miniMaxScore = -n->miniMaxScore;
+            }
+        }
+        assert(this->miniMaxScore > -1000);
+    }
     // Negate number of wins 
     if (parent) parent->updateSim(numSims, -winDiff);
 }
@@ -154,7 +173,8 @@ bool Node::getBestMove(Move *m) {
     for (uint i = 0; i < numMoves; i++) {
         Node *n = children[i];
         if (n) {
-            float score = (float) -n->winDiff / n->numSims;
+            // float score = (float) -n->winDiff / n->numSims;
+            float score = -n->miniMaxScore;
             if (score > bestScore) {
                 bestScoreMove = moves[i];
                 bestScore = score;
