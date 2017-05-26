@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cfloat>
 
+#define HEURISTIC_PRIOR 10
+
 Node::Node(Board b, Node *parent, Side side) :
     board(b), parent(parent), side(side),
     winDiff(0), numSims(0), numDescendants(1), miniMaxScore(0) {
@@ -143,9 +145,11 @@ void Node::updateSim(int numSims, int winDiff) {
     assert(numDescendants != 0);
 
     // If this node doesn't have any children, then set miniMaxScore to 
-    // the win rate (possibly add heuristic here?)
+    // the win rate (possibly add heuristic as a prior here)
     if (numDescendants == 1) {
-        this->miniMaxScore = (float) this->winDiff / this->numSims;
+        float h = board.getHeuristic(this->side);
+        this->miniMaxScore = (this->winDiff + h * HEURISTIC_PRIOR)
+                                / (this->numSims + HEURISTIC_PRIOR);
     }
     else {
         this->miniMaxScore = -FLT_MAX;

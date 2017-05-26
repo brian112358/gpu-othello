@@ -10,7 +10,7 @@
 #include <curand.h>
 
 // Experimentally verified to stay within 768MB memory limit
-#define MAX_NUM_NODES 600000
+#define MAX_NUM_NODES 500000
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {

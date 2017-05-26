@@ -35,6 +35,11 @@ class Board {
     __host__ __device__ int countPieces();
     __host__ __device__ int countEmpty();
 
+    // // Heuristics
+    float getHeuristic(Side side);
+    float getMobility(Side side);
+    float getCorners(Side side);
+
     __host__ __device__ bool operator==(const Board &other) const;
     __host__ __device__ bool operator!=(const Board &other) const;
     void printBoard();

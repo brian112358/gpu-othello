@@ -162,6 +162,36 @@ int Board::countEmpty() {
     return count(getEmpty());
 }
 
+#define K_MOBILITY 0.2
+#define K_CORNERS 0.8
+
+// Heuristic functions; CPU code only
+float Board::getHeuristic(Side side) {
+    return (K_MOBILITY * getMobility(side) + K_CORNERS * getCorners(side))
+            / (K_MOBILITY + K_CORNERS);
+}
+
+float Board::getMobility(Side side) {
+    int my_moves = numMoves(side);
+    int opp_moves = numMoves(OTHER(side));
+    if (my_moves + opp_moves != 0)
+        return (float)(my_moves - opp_moves) / (my_moves + opp_moves);
+    else
+        return 0;
+}
+
+#define CORNERS_MASK 0x8100000000000081ULL
+
+float Board::getCorners(Side side) {
+    int my_corners = countSparse(occupied[side] & CORNERS_MASK);
+    int opp_corners = countSparse(occupied[OTHER(side)] & CORNERS_MASK);
+    if (my_corners + opp_corners != 0)
+        return (float)(my_corners - opp_corners) / (my_corners + opp_corners);
+    else
+        return 0;
+}
+
+
 __host__ __device__ bool Board::operator==(const Board &other) const {
     return this->occupied[0] == other.occupied[0] &&
         this->occupied[1] == other.occupied[1];
