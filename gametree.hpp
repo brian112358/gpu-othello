@@ -37,6 +37,8 @@ class Node {
     // based on UCT score.
     Node *searchScore(bool expand, bool useMinimax);
 
+    std::vector<Node *> searchScoreBlock(bool expand, bool useMinimax);
+
     Node *searchBoard(Board b, Side s, int depth);
 
     void updateSim(int numSims, int winDiff);
@@ -46,11 +48,14 @@ class Node {
     bool getBestMove(Move *m, bool useMinimax);
 
   private:
-    // Increment the number of descendants for all ancestors of this node. 
+    // Increment the number of descendants for all ancestors of this node.
+    void incrementNumDescendants(int numToAdd);
     void incrementNumDescendants();
 
     // Create Node for the given child index (same index as move).
     Node *addChild(int i);
+
+    std::vector<Node *> addChildren();
 };
 
 #endif

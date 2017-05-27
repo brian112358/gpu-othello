@@ -295,3 +295,217 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
 
     return numIters;
 }
+
+
+
+// BLOCK PARALLEL, IN TEST
+#define CPU_BLOCK_SIMS_PER_ITER 1
+#define GPU_BLOCK_SIMS_PER_ITER 128
+
+__global__
+void cudaBlockSimulateGameKernel(Board *boards, Side side, int numSims,
+    float *rands, int *winDiffs) {
+    // Shared memory for partial sums
+    extern __shared__ int partial_winDiff[];
+
+    const uint tid = threadIdx.x;
+    const uint idx = blockIdx.x * blockDim.x + tid;
+    const uint total_threads = blockDim.x * gridDim.x;
+
+    int piecesDiff;
+
+    int numMoves;
+    uint moveNum;
+    uint moveIdx;
+
+    Board b;
+    Move moves[MAX_NUM_MOVES];
+    Side simSide;
+    int numPasses;
+
+    // Initialize winDiffs to 0
+    partial_winDiff[tid] = 0;
+
+    __syncthreads();
+
+    for (uint i = idx; i < numSims; i += total_threads) {
+        b = boards[blockIdx.x];
+        simSide = side;
+        moveNum = 0;
+        numPasses = 0;
+        while (numPasses < 2) {
+            numMoves = b.getMovesAsArray(moves, simSide);
+            if (numMoves) {
+                moveIdx = (uint) (rands[blockIdx.x * blockDim.x + numSims * moveNum + i] * numMoves);
+                b.doMove(moves[moveIdx], simSide);
+                numPasses = 0;
+                moveNum++;
+            }
+            else {
+                numPasses++;
+            }
+            simSide = OTHER(simSide);
+        }
+        piecesDiff = b.countPieces(side) - b.countPieces(OTHER(side));
+        if (piecesDiff > 0) {
+            partial_winDiff[tid] += 1;
+        }
+        else if (piecesDiff < 0) {
+            partial_winDiff[tid] -= 1;
+        }
+    }
+
+    // Reduction step
+    __syncthreads();
+    for (uint s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s)
+            partial_winDiff[tid] += partial_winDiff[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0)
+        atomicAdd(&winDiffs[blockIdx.x], partial_winDiff[0]);
+}
+
+void startNodeSimulationGpuBlock(Board *boards, Board *d_boards, Side side,
+        uint nBlocks, int *winDiffs, int *d_winDiffs,
+        float *d_rands, curandGenerator_t &gen, int turnsLeft,
+        uint nThreads, cudaStream_t stream) {
+
+    // Generate random numbers for the simulations
+    curandGenerateUniform(gen, d_rands, turnsLeft * nBlocks * GPU_BLOCK_SIMS_PER_ITER);
+
+    // Initialize the win difference to 0
+    cudaMemset(d_winDiffs, 0, nBlocks * sizeof(int));
+
+    cudaMemcpyAsync(d_boards, boards,
+        nBlocks * sizeof(Board), cudaMemcpyHostToDevice, stream);
+
+    // Run simulation kernel
+    cudaBlockSimulateGameKernel<<<nBlocks, nThreads, nThreads*sizeof(int), stream>>>(
+            d_boards, side, nThreads, d_rands, d_winDiffs);
+
+    // Copy result back to CPU
+    cudaMemcpyAsync(winDiffs, d_winDiffs,
+        nBlocks * sizeof(int), cudaMemcpyDeviceToHost, stream);
+}
+
+int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
+    clock_t startTime = clock();
+
+    const int turnsLeft = root->board.countEmpty();
+
+    cudaError err;
+
+    err = cudaGetLastError();
+    if ( cudaSuccess != err ) {
+        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
+                 __FILE__, __LINE__, cudaGetErrorString( err ) );
+        exit( -1 );
+    }
+
+    cudaStream_t stream;
+
+    std::vector<Node *> nGpus;
+    int *winDiffs;
+    int *d_winDiffs;
+    Board *boards;
+    Board *d_boards;
+
+    // Random numbers used to calculate random game states taken
+    float *d_rands;
+    curandGenerator_t gen;
+
+    cudaStreamCreate(&stream);
+
+    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+    curandSetStream(gen, stream);
+
+    // // Allocate memory on GPU
+    gpuErrchk(cudaMalloc(&d_rands,
+        turnsLeft * MAX_NUM_MOVES * GPU_BLOCK_SIMS_PER_ITER * sizeof(float)));
+    gpuErrchk(cudaMalloc(&d_winDiffs, MAX_NUM_MOVES * sizeof(int)));
+    gpuErrchk(cudaMallocHost(&winDiffs, MAX_NUM_MOVES * sizeof(int)));
+    gpuErrchk(cudaMalloc(&d_boards, MAX_NUM_MOVES * sizeof(Board)));
+    gpuErrchk(cudaMallocHost(&boards, MAX_NUM_MOVES * sizeof(Board)));
+    
+    // CPU simulation variables
+    std::vector<Node *> nCpus;
+    int cpuOutcome;
+    Move moves[MAX_NUM_MOVES];
+    int numIters = 0;
+    
+    // Main loop
+    while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
+        if (cudaStreamQuery(stream) == cudaSuccess) {
+            // Update using the last result from this stream
+            for (Node *n : nGpus) {
+                n->updateSim(GPU_BLOCK_SIMS_PER_ITER-1, *winDiffs);
+            }
+            // Get a new node to start a simulation from
+            nGpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
+                                        useMinimax);
+            // Put dummy result at node
+            for (Node *n : nGpus) {
+                n->updateSim(1, 0);
+            }
+
+            for (uint i = 0; i < nGpus.size(); i++) {
+                boards[i] = nGpus[i]->board;
+            }
+            
+            // Start simulation
+            startNodeSimulationGpuBlock(boards, d_boards, nGpus[0]->side,
+                nGpus.size(), winDiffs, d_winDiffs,
+                d_rands, gen, turnsLeft, GPU_BLOCK_SIMS_PER_ITER, stream);
+
+            err = cudaGetLastError();
+            if ( cudaSuccess != err ) {
+                fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
+                         __FILE__, __LINE__, cudaGetErrorString( err ) );
+                exit( -1 );
+            }
+        }
+        else {
+            nCpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
+                                    useMinimax);
+            for (Node *n : nCpus) {
+                cpuOutcome = 0;
+                for (uint i = 0; i < CPU_BLOCK_SIMS_PER_ITER; i++) {
+                    cpuOutcome += simulateNode(n, moves);
+                }
+                n->updateSim(CPU_BLOCK_SIMS_PER_ITER, cpuOutcome);
+            }
+        }
+
+        numIters++;
+    }
+
+    // Finish the last GPU call
+    cudaStreamSynchronize(stream);
+    for (uint i = 0; i < nGpus.size(); i++) {
+        nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER-1, winDiffs[i]);
+    }
+
+    err = cudaGetLastError();
+    if ( cudaSuccess != err ) {
+        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
+                 __FILE__, __LINE__, cudaGetErrorString( err ) );
+        exit( -1 );
+    }
+
+    // Free memory
+    curandDestroyGenerator(gen);
+    cudaStreamDestroy(stream);
+    gpuErrchk(cudaFree(d_rands));
+    gpuErrchk(cudaFree(d_winDiffs));
+    gpuErrchk(cudaFreeHost(winDiffs));
+
+    err = cudaGetLastError();
+    if ( cudaSuccess != err ) {
+        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
+                 __FILE__, __LINE__, cudaGetErrorString( err ) );
+        exit( -1 );
+    }
+
+    return numIters;
+}

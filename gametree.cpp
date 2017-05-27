@@ -6,7 +6,7 @@
 #include <cassert>
 #include <cfloat>
 
-#define HEURISTIC_PRIOR 10
+#define HEURISTIC_PRIOR 100
 
 Node::Node(Board b, Node *parent, Side side) :
     board(b), parent(parent), side(side),
@@ -55,8 +55,30 @@ Node *Node::addChild(int i) {
     }
     assert (children[i] == nullptr);
     children[i] = new Node(b, this, OTHER(side));
-    incrementNumDescendants();
+    incrementNumDescendants(1);
     return children[i];
+}
+
+std::vector<Node *> Node::addChildren() {
+    Board b;
+    Move moves[MAX_NUM_MOVES];
+    int numMoves = this->board.getMovesAsArray(moves, side);
+
+    if (numMoves > 0) {
+        for (uint i = 0; i < numMoves; i++) {
+            b = this->board;
+            b.doMove(moves[i], side);
+            assert (children[i] == nullptr);
+            children[i] = new Node(b, this, OTHER(side));
+        }
+    }
+    else {
+        assert (children[0] == nullptr);
+        children[0] = new Node(this->board, this, OTHER(side));
+    }
+    incrementNumDescendants(numMoves > 0? numMoves:1);
+    this->fullyExpanded = true;
+    return children;
 }
 
 // Searches depth down 
@@ -133,10 +155,49 @@ Node *Node::searchScore(bool expand, bool useMinimax) {
     return bestChild->searchScore(expand, useMinimax);
 }
 
+std::vector<Node *> Node::searchScoreBlock(bool expand, bool useMinimax) {
+    if (terminal) {
+        // If this is a terminal and fully expanded node, then just simulate
+        // from this node
+        return {this};
+    }
 
-void Node::incrementNumDescendants() {
-    numDescendants++;
-    if (parent) parent->incrementNumDescendants();
+    if (!fullyExpanded && expand) {
+        return addChildren();
+    }
+
+    // Otherwise, choose child based on UCT score
+    float bestScore = -1;
+    Node *bestChild = nullptr;
+    for (Node *n : children) {
+        if (n) {
+            assert(n->numSims > 0);
+            assert(n->parent == this);
+            // Convert exploit to [-numSims, numSims] -> [0, 1]
+            // and negate because it's the opponent's score
+            float exploit = useMinimax?
+                            (0.5 - n->miniMaxScore/2) :
+                            ((float) (n->numSims - n->winDiff) / (2 * n->numSims));
+            assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
+            float explore = sqrt(2 * log((float)numSims) / n->numSims);
+            float score = exploit + CP * explore;
+            if (!bestChild || score > bestScore) {
+                bestScore = score;
+                bestChild = n;
+            }
+        }
+    }
+    // If there are no eligible children, just return this
+    if (!bestChild) {
+        return {this};
+    }
+    return bestChild->searchScoreBlock(expand, useMinimax);
+}
+
+
+void Node::incrementNumDescendants(int numToAdd) {
+    numDescendants += numToAdd;
+    if (parent) parent->incrementNumDescendants(numToAdd);
 }
 
 void Node::updateSim(int numSims, int winDiff) {

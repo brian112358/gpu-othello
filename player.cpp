@@ -109,7 +109,8 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     bool useMinimax = moveNumber > MINIMAX_TURN;
 
     #ifdef GPU_ON
-        expandGameTreeGpu(root, useMinimax, timeBudgetMs);
+        // expandGameTreeGpu(root, useMinimax, timeBudgetMs);
+        expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs);
     #else
         expandGameTree(root, useMinimax, timeBudgetMs);
     #endif
@@ -117,7 +118,8 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     move = new Move();
     while (!root->getBestMove(move, useMinimax)) {
             #ifdef GPU_ON
-            expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
+            // expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
+            expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs);
         #else
             expandGameTree(root, useMinimax, timeBudgetMs/10);
         #endif
