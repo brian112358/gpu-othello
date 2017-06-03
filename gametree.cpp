@@ -176,9 +176,12 @@ std::vector<Node *> Node::searchScoreBlock(bool expand, bool useMinimax) {
             // Convert exploit to [-numSims, numSims] -> [0, 1]
             // and negate because it's the opponent's score
             float exploit = useMinimax?
-                            (0.5 - n->miniMaxScore/2) :
+                            0.5 * (1. - n->miniMaxScore) :
                             ((float) (n->numSims - n->winDiff) / (2 * n->numSims));
-            assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
+            // assert (-1e-6 <= exploit && exploit <= 1 + 1e-6);
+            if (!(-0.1 <= exploit && exploit <= 1.1)) {
+                fprintf(stderr, "Exploit not within bounds: %f\n", exploit);
+            }
             float explore = sqrt(2 * log((float)numSims) / n->numSims);
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
@@ -209,6 +212,9 @@ void Node::updateSim(int numSims, int winDiff) {
     // the win rate (possibly add heuristic as a prior here)
     if (numDescendants == 1) {
         float h = board.getHeuristic(this->side);
+        if (!(-1 - 1e-6 <= h && h <= 1 + 1e-6)) {
+            fprintf(stderr, "h not within bounds: %f\n", h);
+        }
         this->miniMaxScore = (this->winDiff + h * HEURISTIC_PRIOR)
                                 / (this->numSims + HEURISTIC_PRIOR);
     }

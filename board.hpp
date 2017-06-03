@@ -37,8 +37,11 @@ class Board {
 
     // // Heuristics
     float getHeuristic(Side side);
-    float getMobility(Side side);
-    float getCorners(Side side);
+    float getFrontierHeuristic(Side side);
+    float getMobilityHeuristic(Side side);
+    float getCornersHeuristic(Side side);
+    float getPiecesHeuristic(Side side);
+    float getCornerAdjacentHeuristic(Side side);
 
     __host__ __device__ bool operator==(const Board &other) const;
     __host__ __device__ bool operator!=(const Board &other) const;
@@ -50,6 +53,7 @@ class Board {
 
 __host__ __device__ bitboard allSandwiched(bitboard gen1, bitboard gen2, bitboard prop);
 __host__ __device__ bitboard allAttack(bitboard gen, bitboard prop);
+__host__ __device__ bitboard allShift(bitboard gen);
 
 __host__ __device__ bitboard   SFill(bitboard gen, bitboard prop);
 __host__ __device__ bitboard   NFill(bitboard gen, bitboard prop);

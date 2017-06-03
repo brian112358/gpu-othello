@@ -41,7 +41,6 @@ Player::Player(Side side) {
     root = nullptr;
     this->side = side;
     srand(time(NULL));
-    // srand(42);
 }
 
 /*

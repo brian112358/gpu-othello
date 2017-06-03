@@ -162,16 +162,23 @@ int Board::countEmpty() {
     return count(getEmpty());
 }
 
-#define K_MOBILITY 0.2
-#define K_CORNERS 0.8
+#define K_CORNERS 0.6
+#define K_CORNER_ADJ 0.3
+#define K_MOBILITY 0.05
+#define K_FRONTIER 0.05
+#define K_PIECES 0.0
 
 // Heuristic functions; CPU code only
 float Board::getHeuristic(Side side) {
-    return (K_MOBILITY * getMobility(side) + K_CORNERS * getCorners(side))
-            / (K_MOBILITY + K_CORNERS);
+    return (K_CORNERS * getCornersHeuristic(side) +
+            K_CORNER_ADJ * getCornerAdjacentHeuristic(side) +
+            K_MOBILITY * getMobilityHeuristic(side) +
+            K_FRONTIER * getFrontierHeuristic(side) +
+            K_PIECES * getPiecesHeuristic(side))
+            / (K_CORNERS + K_CORNER_ADJ + K_MOBILITY + K_FRONTIER + K_PIECES);
 }
 
-float Board::getMobility(Side side) {
+float Board::getMobilityHeuristic(Side side) {
     int my_moves = numMoves(side);
     int opp_moves = numMoves(OTHER(side));
     if (my_moves + opp_moves != 0)
@@ -180,13 +187,42 @@ float Board::getMobility(Side side) {
         return 0;
 }
 
+float Board::getFrontierHeuristic(Side side) {
+    bitboard empty = getEmpty();
+    int my_front = countSparse(allShift(occupied[side]) & empty);
+    int opp_front = countSparse(allShift(occupied[OTHER(side)]) & empty);
+    if (my_front + opp_front != 0)
+        return (float)(opp_front - my_front) / (my_front + opp_front);
+    else
+        return 0;
+}
+
 #define CORNERS_MASK 0x8100000000000081ULL
 
-float Board::getCorners(Side side) {
+float Board::getCornersHeuristic(Side side) {
     int my_corners = countSparse(occupied[side] & CORNERS_MASK);
     int opp_corners = countSparse(occupied[OTHER(side)] & CORNERS_MASK);
     if (my_corners + opp_corners != 0)
         return (float)(my_corners - opp_corners) / (my_corners + opp_corners);
+    else
+        return 0;
+}
+
+float Board::getCornerAdjacentHeuristic(Side side) {
+    bitboard adj_mask = allShift(getOccupied() & CORNERS_MASK);
+    int my_adj = countSparse(occupied[side] & adj_mask);
+    int opp_adj = countSparse(occupied[OTHER(side)] & adj_mask);
+    if (my_adj + opp_adj != 0)
+        return (float)(opp_adj - my_adj) / (my_adj + opp_adj);
+    else
+        return 0;
+}
+
+float Board::getPiecesHeuristic(Side side) {
+    int my_pieces = countPieces(side);
+    int opp_pieces = countPieces(OTHER(side));
+    if (my_pieces + opp_pieces != 0)
+        return (float)(opp_pieces - my_pieces) / (my_pieces + opp_pieces);
     else
         return 0;
 }
@@ -261,6 +297,19 @@ bitboard allAttack(bitboard gen, bitboard prop) {
     flood         |= SWShift(SWFill(gen, prop));
     flood         |= NWShift(NWFill(gen, prop));
     return flood;
+}
+
+__host__ __device__
+bitboard allShift(bitboard gen) {
+    bitboard result =  SShift(gen);
+    result         |=  NShift(gen);
+    result         |=  EShift(gen);
+    result         |= SEShift(gen);
+    result         |= NEShift(gen);
+    result         |=  WShift(gen);
+    result         |= SWShift(gen);
+    result         |= NWShift(gen);
+    return result;
 }
 
 // Dumb7Fill: http://chessprogramming.wikispaces.com/Dumb7Fill
