@@ -162,8 +162,9 @@ int Board::countEmpty() {
     return count(getEmpty());
 }
 
-#define K_CORNERS 0.6
-#define K_CORNER_ADJ 0.3
+#define K_CORNERS 0.55
+#define K_CORNER_ADJ 0.25
+#define K_PARITY 0.1
 #define K_MOBILITY 0.05
 #define K_FRONTIER 0.05
 #define K_PIECES 0.0
@@ -172,10 +173,16 @@ int Board::countEmpty() {
 float Board::getHeuristic(Side side) {
     return (K_CORNERS * getCornersHeuristic(side) +
             K_CORNER_ADJ * getCornerAdjacentHeuristic(side) +
+            K_PARITY * getParityHeuristic(side) +
             K_MOBILITY * getMobilityHeuristic(side) +
             K_FRONTIER * getFrontierHeuristic(side) +
             K_PIECES * getPiecesHeuristic(side))
-            / (K_CORNERS + K_CORNER_ADJ + K_MOBILITY + K_FRONTIER + K_PIECES);
+            / (K_CORNERS + K_CORNER_ADJ + K_PARITY + K_MOBILITY + K_FRONTIER + K_PIECES);
+}
+
+// Return whether or not this side gets to make the last move
+float Board::getParityHeuristic(Side side) {
+    return (countPieces() % 2)? 1:-1;
 }
 
 float Board::getMobilityHeuristic(Side side) {

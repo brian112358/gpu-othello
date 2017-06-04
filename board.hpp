@@ -37,6 +37,7 @@ class Board {
 
     // // Heuristics
     float getHeuristic(Side side);
+    float getParityHeuristic(Side side);
     float getFrontierHeuristic(Side side);
     float getMobilityHeuristic(Side side);
     float getCornersHeuristic(Side side);

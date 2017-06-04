@@ -31,6 +31,20 @@ const float time_alloc[60] =
     0.2681, 0.3067, 0.3667, 0.4610, 0.6319, 0.9005
 };
 
+// const float time_alloc[60] =
+// {
+//     0.0153, 0.0201, 0.0241, 0.0200, 0.0173, 0.0173,
+//     0.0156, 0.0151, 0.0140, 0.0131, 0.0123, 0.0116,
+//     0.0129, 0.0127, 0.0124, 0.0120, 0.0126, 0.0127,
+//     0.0123, 0.0120, 0.0131, 0.0131, 0.0131, 0.0136,
+//     0.0138, 0.0136, 0.0146, 0.0148, 0.0155, 0.0157,
+//     0.0167, 0.0170, 0.0177, 0.0179, 0.0189, 0.0203,
+//     0.0214, 0.0227, 0.0243, 0.0255, 0.0279, 0.0292,
+//     0.0313, 0.0341, 0.0379, 0.0420, 0.0469, 0.0529,
+//     0.0609, 0.0683, 0.0796, 0.0919, 0.1009, 0.1167,
+//     0.1401, 0.1710, 0.2214, 0.3090, 0.4917, 0.9000
+// };
+
 /*
  * Constructor for the player; initialize everything here. The side your AI is
  * on (BLACK or WHITE) is passed in as "side". The constructor must finish 
@@ -104,6 +118,11 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
         fprintf(stderr, "[1 move]: (%d, %d)\n", move->x, move->y);
         return move;
     }
+    else if (root->state & PROVEN_WIN) {
+        move = new Move();
+        root->getBestMove(move, true, true);
+        board->doMove(*move, this->side);
+    }
 
     bool useMinimax = moveNumber > MINIMAX_TURN;
 
@@ -115,13 +134,15 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     #endif
 
     move = new Move();
-    while (!root->getBestMove(move, useMinimax)) {
-            #ifdef GPU_ON
+    int numRetries = 0;
+    while (!root->getBestMove(move, useMinimax, numRetries > 5)) {
+        #ifdef GPU_ON
             // expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
-            expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs);
+            expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs/10);
         #else
             expandGameTree(root, useMinimax, timeBudgetMs/10);
         #endif
+        numRetries++;
     }
 
     fprintf(stderr, "Game tree now has %d nodes\n", root->numDescendants);

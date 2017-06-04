@@ -118,6 +118,7 @@ void cudaSimulateGameKernel(Board board, Side side, int simsPerBlock,
     while (numPasses < 2) {
         numMoves = b.getMovesAsArray(moves, simSide);
         if (numMoves) {
+            // rands[] is indexed by (moveNum, blockNum, tid)
             moveIdx = (uint) (rands[(moveNum * gridDim.x + blockIdx.x) * simsPerBlock + tid] * numMoves);
             b.doMove(moves[moveIdx], simSide);
             numPasses = 0;
@@ -433,9 +434,8 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
                 nGpus[0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[0]);
             }
             else {
-                for (Node *n : nGpus) {
-                    n->updateSim(GPU_BLOCK_SIMS_PER_ITER-1, *winDiffs);
-                }
+                for (uint i = 0; i < nGpus.size(); i++)
+                    nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER - 1, winDiffs[i]);
             }
             // Get a new node to start a simulation from
             nGpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
@@ -453,7 +453,7 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
             if (nGpus.size() > 1) {
                 startNodeSimulationGpuBlock(boards, d_boards, nGpus[0]->side,
                     nGpus.size(), winDiffs, d_winDiffs,
-                    d_rands, gen, turnsLeft, GPU_BLOCK_SIMS_PER_ITER, stream);   
+                    d_rands, gen, turnsLeft, GPU_BLOCK_SIMS_PER_ITER, stream);
             }
             else {
                 startNodeSimulationGpu(nGpus[0], &winDiffs[0], &d_winDiffs[0],

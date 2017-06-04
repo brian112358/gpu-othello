@@ -8,18 +8,21 @@
 // Cp is a constant used for calculating a node's UCT score, choose 1/sqrt(2)
 #define CP 0.707
 
+#define HEURISTIC_PRIOR 100
+
 // Store binary states in a single byte; following are the bitmasks
-// #define TERMINAL 0x01
-// #define FULLY_EXPANDED 0x02
-// #define UNEXPANDED 0x04
+#define SOLVED 0x01
+#define PROVEN_WIN 0x02
+#define PROVEN_LOSS 0x04
+#define FULLY_EXPANDED 0x08
 
 class Node {
   public:
     Side side;
     Board board;
     Node *parent;
-    bool terminal;
-    bool fullyExpanded;
+
+    unsigned char state;
 
     std::vector<Node*> children;
 
@@ -45,7 +48,7 @@ class Node {
 
 
     // Given simulations so far, return move with most number of simulations.
-    bool getBestMove(Move *m, bool useMinimax);
+    bool getBestMove(Move *m, bool useMinimax, bool forceResult);
 
   private:
     // Increment the number of descendants for all ancestors of this node.
