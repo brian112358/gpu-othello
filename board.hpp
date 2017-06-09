@@ -23,6 +23,7 @@ class Board {
     __host__ __device__ bitboard getEmpty();
     __host__ __device__ bitboard getMoves(Side side);
     __host__ __device__ int getMovesAsArray(Move *output_moves, Side side);
+    __host__ __device__ int getHeuristicMovesAsArray(Move *output_moves, Side side);
 
 
     __host__ __device__ bool get(Side side, int x, int y);
@@ -31,18 +32,20 @@ class Board {
     __host__ __device__ int numMoves(Side side);
     __host__ __device__ bool checkMove(Move m, Side side);
     __host__ __device__ bool doMove(Move m, Side side);
+    __host__ __device__ bool doMove(int m, Side side);
     __host__ __device__ int countPieces(Side side);
     __host__ __device__ int countPieces();
     __host__ __device__ int countEmpty();
 
     // // Heuristics
-    float getHeuristic(Side side);
-    float getParityHeuristic(Side side);
-    float getFrontierHeuristic(Side side);
-    float getMobilityHeuristic(Side side);
-    float getCornersHeuristic(Side side);
-    float getPiecesHeuristic(Side side);
-    float getCornerAdjacentHeuristic(Side side);
+    __host__ __device__ float getHeuristic(Side side);
+    __host__ __device__ float getCornersHeuristic(Side side);
+    __host__ __device__ float getXSquaresHeuristic(Side side);
+    __host__ __device__ float getCSquaresHeuristic(Side side);
+    __host__ __device__ float getMobilityHeuristic(Side side);
+    __host__ __device__ float getParityHeuristic(Side side);
+    __host__ __device__ float getFrontierHeuristic(Side side);
+    __host__ __device__ float getPiecesHeuristic(Side side);
 
     __host__ __device__ bool operator==(const Board &other) const;
     __host__ __device__ bool operator!=(const Board &other) const;
@@ -55,6 +58,8 @@ class Board {
 __host__ __device__ bitboard allSandwiched(bitboard gen1, bitboard gen2, bitboard prop);
 __host__ __device__ bitboard allAttack(bitboard gen, bitboard prop);
 __host__ __device__ bitboard allShift(bitboard gen);
+__host__ __device__ bitboard diagShift(bitboard gen);
+__host__ __device__ bitboard cardShift(bitboard gen);
 
 __host__ __device__ bitboard   SFill(bitboard gen, bitboard prop);
 __host__ __device__ bitboard   NFill(bitboard gen, bitboard prop);

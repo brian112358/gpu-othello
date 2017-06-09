@@ -19,31 +19,17 @@
 
 const float time_alloc[60] =
 {
-    0.0050, 0.0096, 0.0148, 0.0148, 0.0148, 0.0167,
-    0.0167, 0.0176, 0.0177, 0.0177, 0.0177, 0.0177,
-    0.0206, 0.0212, 0.0216, 0.0216, 0.0235, 0.0245,
-    0.0245, 0.0245, 0.0274, 0.0280, 0.0286, 0.0304,
-    0.0313, 0.0313, 0.0343, 0.0352, 0.0374, 0.0382,
-    0.0411, 0.0421, 0.0443, 0.0450, 0.0479, 0.0518,
-    0.0547, 0.0582, 0.0623, 0.0655, 0.0715, 0.0746,
-    0.0798, 0.0864, 0.0953, 0.1049, 0.1156, 0.1283,
-    0.1451, 0.1590, 0.1805, 0.2015, 0.2127, 0.2353,
-    0.2681, 0.3067, 0.3667, 0.4610, 0.6319, 0.9005
+    0.0123, 0.0151, 0.0231, 0.0231, 0.0228, 0.0258,
+    0.0255, 0.0268, 0.0267, 0.0266, 0.0263, 0.0263,
+    0.0303, 0.0311, 0.0313, 0.0312, 0.0336, 0.0350,
+    0.0345, 0.0345, 0.0381, 0.0388, 0.0392, 0.0415,
+    0.0423, 0.0421, 0.0455, 0.0467, 0.0489, 0.0497,
+    0.0529, 0.0539, 0.0561, 0.0567, 0.0596, 0.0641,
+    0.0668, 0.0708, 0.0747, 0.0781, 0.0841, 0.0873,
+    0.0919, 0.0991, 0.1075, 0.1178, 0.1276, 0.1412,
+    0.1567, 0.1714, 0.1906, 0.2124, 0.2187, 0.2417,
+    0.2670, 0.3055, 0.3507, 0.4417, 0.9000, 0.9000
 };
-
-// const float time_alloc[60] =
-// {
-//     0.0153, 0.0201, 0.0241, 0.0200, 0.0173, 0.0173,
-//     0.0156, 0.0151, 0.0140, 0.0131, 0.0123, 0.0116,
-//     0.0129, 0.0127, 0.0124, 0.0120, 0.0126, 0.0127,
-//     0.0123, 0.0120, 0.0131, 0.0131, 0.0131, 0.0136,
-//     0.0138, 0.0136, 0.0146, 0.0148, 0.0155, 0.0157,
-//     0.0167, 0.0170, 0.0177, 0.0179, 0.0189, 0.0203,
-//     0.0214, 0.0227, 0.0243, 0.0255, 0.0279, 0.0292,
-//     0.0313, 0.0341, 0.0379, 0.0420, 0.0469, 0.0529,
-//     0.0609, 0.0683, 0.0796, 0.0919, 0.1009, 0.1167,
-//     0.1401, 0.1710, 0.2214, 0.3090, 0.4917, 0.9000
-// };
 
 /*
  * Constructor for the player; initialize everything here. The side your AI is
@@ -72,10 +58,10 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
 
     const int moveNumber = board->countPieces() - 4;
     assert(0 <= moveNumber && moveNumber <= 60);
-    int timeBudgetMs = msLeft < 0? 4000:(time_alloc[moveNumber] * msLeft);
+    int timeBudgetMs = msLeft < 0? 8000:(time_alloc[moveNumber] * msLeft);
     if (timeBudgetMs < 500) timeBudgetMs = 500;
     
-    fprintf(stderr, "Allocated %d of %d ms on move %d\n",
+    fprintf(stderr, "\nAllocated %d of %d ms on move %d.\n",
         timeBudgetMs, msLeft, moveNumber);
 
     // If we have previous game tree info
@@ -92,7 +78,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
             delete root;
             root = new_root;
             assert (root->side == this->side);
-            fprintf(stderr, "Saved %d old simulations\n", root->numSims);
+            fprintf(stderr, "Saved %d old simulations in %d nodes.\n", root->numSims, root->numDescendants);
         }
         else {
             delete root;
@@ -109,19 +95,21 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
 
     // Early exits:
     if (numMoves == 0) {
-        fprintf(stderr, "[No moves]\n");
+        fprintf(stderr, "[No moves]: PASS\n\n");
         return nullptr;
+    }
+    else if ((root->state & SOLVED) && !(root->state & PROVEN_LOSS)) {
+        move = new Move();
+        root->getBestMove(move, true, true);
+        board->doMove(*move, this->side);
+        fprintf(stderr, "Game tree now has %d nodes\n\n", root->numDescendants);
+        return move;
     }
     else if (numMoves == 1) {
         move = new Move(moves[0]);
         board->doMove(*move, this->side);
-        fprintf(stderr, "[1 move]: (%d, %d)\n", move->x, move->y);
+        fprintf(stderr, "[1 move]: (%d, %d)\n\n", move->x, move->y);
         return move;
-    }
-    else if (root->state & PROVEN_WIN) {
-        move = new Move();
-        root->getBestMove(move, true, true);
-        board->doMove(*move, this->side);
     }
 
     bool useMinimax = moveNumber > MINIMAX_TURN;
@@ -135,7 +123,8 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
 
     move = new Move();
     int numRetries = 0;
-    while (!root->getBestMove(move, useMinimax, numRetries > 5)) {
+    while (!root->getBestMove(move, useMinimax, numRetries > 9)) {
+        fprintf(stderr, ".");
         #ifdef GPU_ON
             // expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
             expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs/10);
@@ -145,7 +134,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
         numRetries++;
     }
 
-    fprintf(stderr, "Game tree now has %d nodes\n", root->numDescendants);
+    fprintf(stderr, "Game tree now has %d nodes\n\n", root->numDescendants);
 
     board->doMove(*move, this->side);
 

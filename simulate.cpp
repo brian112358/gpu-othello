@@ -10,7 +10,10 @@
 #include <curand.h>
 
 // Experimentally verified to stay within 768MB memory limit
-#define MAX_NUM_NODES 500000
+// #define MAX_NUM_NODES 500000
+
+// Modified memory limit to 8GB
+#define MAX_NUM_NODES 12000000
 
 
 #define CPU_SIMS_PER_ITER 1
@@ -18,11 +21,11 @@
 #define GPU_KERNEL_LAUNCH_SPACING 16
 #define GPU_NUM_KERNELS 16
 // #define GPU_SIMS_PER_ITER 1024
-#define NBLOCKS 8
-#define NTHREADS 128
+#define NBLOCKS 16
+#define NTHREADS 256
 
 #define CPU_BLOCK_SIMS_PER_ITER 1
-#define GPU_BLOCK_SIMS_PER_ITER 1024
+#define GPU_BLOCK_SIMS_PER_ITER 256
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
@@ -56,6 +59,10 @@ int simulateNode(Node *n, Move *moves) {
     int numPasses = 0;
     while (numPasses < 2) {
         int numMoves = b.getMovesAsArray(moves, side);
+        // fprintf(stderr, "Total moves (%d), ", numMoves);
+        // numMoves = b.getHeuristicMovesAsArray(moves, side);
+        // fprintf(stderr, "Heuristic moves (%d)\n", numMoves);
+        // int numMoves = b.getHeuristicMovesAsArray(moves, side);
         if (numMoves) {
             b.doMove(moves[rand() % numMoves], side);
             numPasses = 0;
@@ -117,6 +124,7 @@ void cudaSimulateGameKernel(Board board, Side side, int simsPerBlock,
     numPasses = 0;
     while (numPasses < 2) {
         numMoves = b.getMovesAsArray(moves, simSide);
+        // numMoves = b.getHeuristicMovesAsArray(moves, simSide);
         if (numMoves) {
             // rands[] is indexed by (moveNum, blockNum, tid)
             moveIdx = (uint) (rands[(moveNum * gridDim.x + blockIdx.x) * simsPerBlock + tid] * numMoves);
@@ -222,8 +230,6 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
         if (itersSinceLastKernelLaunch >= GPU_KERNEL_LAUNCH_SPACING &&
             cudaStreamQuery(streams[s]) == cudaSuccess) {
-            // if (itersSinceLastKernelLaunch > maxItersBtwKernelLaunches)
-            //     maxItersBtwKernelLaunches = itersSinceLastKernelLaunch;
             // Update using the last result from this stream
             if (nGpu[s]) {
                 nGpu[s]->updateSim(NBLOCKS * NTHREADS-1, *winDiff[s]);
@@ -267,7 +273,7 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
         uint idx = (s+i)%GPU_NUM_KERNELS;
         cudaStreamSynchronize(streams[idx]);
         if (nGpu[idx]) {
-            nGpu[idx]->updateSim(NBLOCKS * NTHREADS-1, *winDiff[idx]);
+            nGpu[idx]->updateSim(NBLOCKS * NTHREADS - 1, *winDiff[idx]);
         }
     }
 
@@ -327,6 +333,7 @@ void cudaBlockSimulateGameKernel(Board *boards, Side side, int simsPerBoard,
     numPasses = 0;
     while (numPasses < 2) {
         numMoves = b.getMovesAsArray(moves, simSide);
+        // numMoves = b.getHeuristicMovesAsArray(moves, simSide);
         if (numMoves) {
             // rands[] is indexed by (moveNum, boardNum, tid)
             moveIdx = (uint) (rands[(moveNum * gridDim.x + blockIdx.x) * simsPerBoard + tid] * numMoves);
@@ -434,8 +441,9 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
                 nGpus[0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[0]);
             }
             else {
-                for (uint i = 0; i < nGpus.size(); i++)
+                for (uint i = 0; i < nGpus.size(); i++) {
                     nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER - 1, winDiffs[i]);
+                }
             }
             // Get a new node to start a simulation from
             nGpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
@@ -467,6 +475,7 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
                          __FILE__, __LINE__, cudaGetErrorString( err ) );
                 exit( -1 );
             }
+            numIters++;
         }
         else {
             nCpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
@@ -479,14 +488,17 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
                 n->updateSim(CPU_BLOCK_SIMS_PER_ITER, cpuOutcome);
             }
         }
-
-        numIters++;
     }
 
     // Finish the last GPU call
     cudaStreamSynchronize(stream);
-    for (uint i = 0; i < nGpus.size(); i++) {
-        nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER-1, winDiffs[i]);
+    if (nGpus.size() == 1) {
+        nGpus[0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[0]);
+    }
+    else {
+        for (uint i = 0; i < nGpus.size(); i++) {
+            nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER - 1, winDiffs[i]);
+        }   
     }
 
     err = cudaGetLastError();

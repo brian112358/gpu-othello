@@ -8,7 +8,7 @@
 // Cp is a constant used for calculating a node's UCT score, choose 1/sqrt(2)
 #define CP 0.707
 
-#define HEURISTIC_PRIOR 100
+#define HEURISTIC_PRIOR 10
 
 // Store binary states in a single byte; following are the bitmasks
 #define SOLVED 0x01

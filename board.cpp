@@ -2,6 +2,8 @@
 #include <cassert>
 #include "board.hpp"
 
+#define HEURISTIC_CUTOFF 0.99
+
 __host__ __device__ int xyToIndex(int x, int y) { return 8 * y + x; }
 __host__ __device__ int moveToIndex(Move m) { return xyToIndex(m.x, m.y); }
 __host__ __device__ Move indexToMove(int i) { return Move(i % 8, i / 8); }
@@ -108,6 +110,49 @@ int Board::getMovesAsArray(Move *output_moves, Side side) {
 }
 
 __host__ __device__
+int Board::getHeuristicMovesAsArray(Move *output_moves, Side side) {
+    bitboard moves = getMoves(side);
+    if (!moves) return 0;
+    float scores[MAX_NUM_MOVES];
+    float avg_score = 0;
+
+
+    int numMoves = 0;
+    int idx;
+    Board b;
+    do {
+        #ifdef  __CUDA_ARCH__
+          idx = __ffsll(moves);
+        #else
+          idx = __builtin_ffsll(moves);
+        #endif
+        b = *this;
+        b.doMove(idx-1, side);
+        scores[numMoves] = b.getHeuristic(side);
+        avg_score += scores[numMoves];
+        output_moves[numMoves] = indexToMove(idx-1);
+        numMoves++;
+    } while (moves &= moves-1); // reset LS1B
+
+    avg_score /= numMoves;
+
+    assert(numMoves < MAX_NUM_MOVES);
+
+    // Remove moves with much worse than average heuristic score.
+    int numHeuristicMoves = 0;
+    idx = 0;
+    for(idx = 0; idx < numMoves; idx++) {
+        if ((1 + scores[idx]) > HEURISTIC_CUTOFF * (1 + avg_score)) {
+            output_moves[numHeuristicMoves] = output_moves[idx];
+            numHeuristicMoves++;
+        }
+    }
+
+    // Filter out moves
+    return numHeuristicMoves;
+}
+
+__host__ __device__
 bool Board::get(Side side, int x, int y) {
     return occupied[side] & xyToBitboard(x, y);
 }
@@ -133,11 +178,26 @@ bool Board::checkMove(Move m, Side side) {
 }
 
 __host__ __device__
+bool Board::doMove(int m, Side side) {
+    // Return false if move is not valid
+    // if (!(getMoves(side) & indexToBitboard(m))) {
+    //     return false;
+    // }
+    bitboard move = indexToBitboard(m);
+    bitboard flipped = allSandwiched(move, occupied[side], occupied[!side]);
+
+    occupied[side] |= move;
+    occupied[side] |= flipped;
+    occupied[!side] ^= flipped;
+    return true;
+}
+
+__host__ __device__
 bool Board::doMove(Move m, Side side) {
     // Return false if move is not valid
-    if (!(getMoves(side) & moveToBitboard(m))) {
-        return false;
-    }
+    // if (!(getMoves(side) & moveToBitboard(m))) {
+    //     return false;
+    // }
     bitboard move = moveToBitboard(m);
     bitboard flipped = allSandwiched(move, occupied[side], occupied[!side]);
 
@@ -162,29 +222,35 @@ int Board::countEmpty() {
     return count(getEmpty());
 }
 
-#define K_CORNERS 0.55
-#define K_CORNER_ADJ 0.25
+#define K_CORNERS 0.54
+#define K_X_SQUARES 0.20
+#define K_C_SQUARES 0.05
 #define K_PARITY 0.1
 #define K_MOBILITY 0.05
 #define K_FRONTIER 0.05
-#define K_PIECES 0.0
+#define K_PIECES 0.01
 
-// Heuristic functions; CPU code only
+// Heuristic functions
+__host__ __device__
 float Board::getHeuristic(Side side) {
-    return (K_CORNERS * getCornersHeuristic(side) +
-            K_CORNER_ADJ * getCornerAdjacentHeuristic(side) +
-            K_PARITY * getParityHeuristic(side) +
-            K_MOBILITY * getMobilityHeuristic(side) +
-            K_FRONTIER * getFrontierHeuristic(side) +
-            K_PIECES * getPiecesHeuristic(side))
-            / (K_CORNERS + K_CORNER_ADJ + K_PARITY + K_MOBILITY + K_FRONTIER + K_PIECES);
+    return (K_CORNERS * getCornersHeuristic(side)
+            + K_C_SQUARES * getCSquaresHeuristic(side)
+            + K_X_SQUARES * getXSquaresHeuristic(side)
+            + K_PARITY * getParityHeuristic(side)
+            + K_MOBILITY * getMobilityHeuristic(side)
+            + K_FRONTIER * getFrontierHeuristic(side)
+            + K_PIECES * getPiecesHeuristic(side))
+            / (K_CORNERS + K_C_SQUARES + K_X_SQUARES + K_PARITY + K_MOBILITY + K_FRONTIER + K_PIECES);
 }
 
 // Return whether or not this side gets to make the last move
+// Normalized so that it's initially 0 for both white and black
+__host__ __device__
 float Board::getParityHeuristic(Side side) {
-    return (countPieces() % 2)? 1:-1;
+    return ((countPieces() % 2)? 0.5:-0.5) + (side == BLACK? 0.5:-0.5);
 }
 
+__host__ __device__
 float Board::getMobilityHeuristic(Side side) {
     int my_moves = numMoves(side);
     int opp_moves = numMoves(OTHER(side));
@@ -194,6 +260,7 @@ float Board::getMobilityHeuristic(Side side) {
         return 0;
 }
 
+__host__ __device__
 float Board::getFrontierHeuristic(Side side) {
     bitboard empty = getEmpty();
     int my_front = countSparse(allShift(occupied[side]) & empty);
@@ -206,25 +273,38 @@ float Board::getFrontierHeuristic(Side side) {
 
 #define CORNERS_MASK 0x8100000000000081ULL
 
+__host__ __device__
 float Board::getCornersHeuristic(Side side) {
     int my_corners = countSparse(occupied[side] & CORNERS_MASK);
     int opp_corners = countSparse(occupied[OTHER(side)] & CORNERS_MASK);
-    if (my_corners + opp_corners != 0)
-        return (float)(my_corners - opp_corners) / (my_corners + opp_corners);
+    return (my_corners - opp_corners) / 4.;
+}
+
+__host__ __device__
+float Board::getCSquaresHeuristic(Side side) {
+    bitboard c_mask = cardShift(getEmpty() & CORNERS_MASK);
+    int my_c = countSparse(occupied[side] & c_mask);
+    int opp_c = countSparse(occupied[OTHER(side)] & c_mask);
+    int num_c = countSparse(c_mask);
+    if (num_c != 0)
+        return (float)(opp_c - my_c) / num_c;
     else
         return 0;
 }
 
-float Board::getCornerAdjacentHeuristic(Side side) {
-    bitboard adj_mask = allShift(getOccupied() & CORNERS_MASK);
-    int my_adj = countSparse(occupied[side] & adj_mask);
-    int opp_adj = countSparse(occupied[OTHER(side)] & adj_mask);
-    if (my_adj + opp_adj != 0)
-        return (float)(opp_adj - my_adj) / (my_adj + opp_adj);
+__host__ __device__
+float Board::getXSquaresHeuristic(Side side) {
+    bitboard x_mask = diagShift(getEmpty() & CORNERS_MASK);
+    int my_x = countSparse(occupied[side] & x_mask);
+    int opp_x = countSparse(occupied[OTHER(side)] & x_mask);
+    int num_x = countSparse(x_mask);
+    if (num_x != 0)
+        return (float)(opp_x - my_x) / num_x;
     else
         return 0;
 }
 
+__host__ __device__
 float Board::getPiecesHeuristic(Side side) {
     int my_pieces = countPieces(side);
     int opp_pieces = countPieces(OTHER(side));
@@ -316,6 +396,24 @@ bitboard allShift(bitboard gen) {
     result         |=  WShift(gen);
     result         |= SWShift(gen);
     result         |= NWShift(gen);
+    return result;
+}
+
+__host__ __device__
+bitboard diagShift(bitboard gen) {
+    bitboard result = SEShift(gen);
+    result         |= NEShift(gen);
+    result         |= SWShift(gen);
+    result         |= NWShift(gen);
+    return result;
+}
+
+__host__ __device__
+bitboard cardShift(bitboard gen) {
+    bitboard result =  SShift(gen);
+    result         |=  NShift(gen);
+    result         |=  EShift(gen);
+    result         |=  WShift(gen);
     return result;
 }
 

@@ -4,15 +4,15 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 
 /**
- * A wrapper class for the CS 2 Othello tournament. This should 
+ * A wrapper class for the CS 2 Othello tournament. This should
  * enable students to use a non-Java Othello player by handing the moves
  * back and forth using stdin/stdout.
  */
 public class WrapperPlayer implements OthelloPlayer {
-    private final static int MAX_MEMORY_KB = 786432;
+    private final static int MAX_MEMORY_KB = 8388608; //786432;
     private Process p;
     private BufferedReader br;
-    private BufferedReader stderr;    
+    private BufferedReader stderr;
     private BufferedWriter bw;
     private String name;
 
@@ -28,9 +28,9 @@ public class WrapperPlayer implements OthelloPlayer {
                         bw.close();
                         p.destroy();
                     }
-                } catch (Exception e) {   
+                } catch (Exception e) {
                     e.printStackTrace();
-                }                
+                }
             }
         });
     }
@@ -54,15 +54,15 @@ public class WrapperPlayer implements OthelloPlayer {
      * @param opponentsMove the last move made by the other player. If
      * it is null, then that player passed, of this player is the first
      * player to make a move.
-     * 
+     *
      * @param millisLeft the number of milliseconds that this player
      * has remaining in the entire game, before going overtime and
      * being disqualified.
-     * 
+     *
      * @return Move this player's move. May be null only if there are
      * no legal moves to make.
      */
-    public Move doMove(Move opponentsMove, long millisLeft) {    
+    public Move doMove(Move opponentsMove, long millisLeft) {
         printStdErr();
 
         String line;
@@ -74,7 +74,7 @@ public class WrapperPlayer implements OthelloPlayer {
                     + " " + millisLeft + "\n");
             }
             bw.flush();
-            
+
             while (!br.ready()) {
                 printStdErr();
 
@@ -85,7 +85,7 @@ public class WrapperPlayer implements OthelloPlayer {
                     break;
                 } catch (IllegalThreadStateException e) {
                     // Program still running, don't do anything.
-                }                                
+                }
                 Thread.yield();
                 Thread.sleep(100);
             }
@@ -98,7 +98,7 @@ public class WrapperPlayer implements OthelloPlayer {
                 String[] parts = line.split(" ");
                 return new Move(Integer.parseInt(parts[0]),
                     Integer.parseInt(parts[1]));
-            }            
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -113,13 +113,13 @@ public class WrapperPlayer implements OthelloPlayer {
             String cmd = "ulimit -m " + MAX_MEMORY_KB + " -v " + MAX_MEMORY_KB + ";";
             cmd += "./" + name + " " + side;
             ProcessBuilder pb = new ProcessBuilder("bash", "-c", cmd);
-            p = pb.start();            
-            
+            p = pb.start();
+
             br = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            stderr = new BufferedReader(new InputStreamReader(p.getErrorStream()));                    
+            stderr = new BufferedReader(new InputStreamReader(p.getErrorStream()));
             bw = new BufferedWriter(new OutputStreamWriter(p.getOutputStream()));
-              
-            // Wait for message that program is done initialization.                       
+
+            // Wait for message that program is done initialization.
             br.readLine();
         }
         catch (Exception e) {
