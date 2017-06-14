@@ -18,7 +18,6 @@ int main(int argc, char *argv[]) {
 	int idx = 0;
     while (!b.isDone()) {
 		m[idx] = player[idx]->doMove(m[(idx+1)%2], 300000);
-		// b.printBoard();
 		if (m[idx] && *m[idx] != Move(-1, -1)) {
             assert(b.doMove(*m[idx], idx? WHITE:BLACK));
         }
