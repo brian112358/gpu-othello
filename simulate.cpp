@@ -13,19 +13,17 @@
 // #define MAX_NUM_NODES 500000
 
 // Modified memory limit to 8GB
-#define MAX_NUM_NODES 12000000
-
+#define MAX_NUM_NODES 32000000
 
 #define CPU_SIMS_PER_ITER 1
 
-#define GPU_KERNEL_LAUNCH_SPACING 16
-#define GPU_NUM_KERNELS 16
-// #define GPU_SIMS_PER_ITER 1024
+#define GPU_KERNEL_LAUNCH_SPACING 8
+#define GPU_NUM_KERNELS 8
 #define NBLOCKS 16
 #define NTHREADS 256
 
-#define CPU_BLOCK_SIMS_PER_ITER 1
-#define GPU_BLOCK_SIMS_PER_ITER 256
+#define CPU_BLOCK_SIMS 1
+#define GPU_BLOCK_SIMS 256
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
@@ -59,10 +57,6 @@ int simulateNode(Node *n, Move *moves) {
     int numPasses = 0;
     while (numPasses < 2) {
         int numMoves = b.getMovesAsArray(moves, side);
-        // fprintf(stderr, "Total moves (%d), ", numMoves);
-        // numMoves = b.getHeuristicMovesAsArray(moves, side);
-        // fprintf(stderr, "Heuristic moves (%d)\n", numMoves);
-        // int numMoves = b.getHeuristicMovesAsArray(moves, side);
         if (numMoves) {
             b.doMove(moves[rand() % numMoves], side);
             numPasses = 0;
@@ -85,9 +79,9 @@ int expandGameTree(Node *root, bool useMinimax, int ms) {
     int outcome;
 
     while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        n = root->searchScore(root->numDescendants < MAX_NUM_NODES, useMinimax);
+        n = root->searchScore(root->numDescendants < MAX_NUM_NODES, useMinimax, root->state & SOLVED);
         outcome = simulateNode(n, moves);
-        n->updateSim(1, outcome);
+        n->updateSim(1, outcome, true);
         numSims++;
     }
     return numSims;
@@ -227,18 +221,18 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
     uint s = 0;
     
     // Main loop
-    while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
+    while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000 && ! (root->state & SCORE_FINAL)) {
         if (itersSinceLastKernelLaunch >= GPU_KERNEL_LAUNCH_SPACING &&
             cudaStreamQuery(streams[s]) == cudaSuccess) {
             // Update using the last result from this stream
             if (nGpu[s]) {
-                nGpu[s]->updateSim(NBLOCKS * NTHREADS-1, *winDiff[s]);
+                nGpu[s]->updateSim(NBLOCKS * NTHREADS-1, *winDiff[s], true);
             }
             // Get a new node to start a simulation from
             nGpu[s] = root->searchScore(root->numDescendants < MAX_NUM_NODES,
-                                        useMinimax);
+                                        useMinimax, root->state & SOLVED);
             // Put dummy result at node
-            nGpu[s]->updateSim(1, 0);
+            nGpu[s]->updateSim(1, 0, true);
             
             // Start simulation
             startNodeSimulationGpu(nGpu[s], winDiff[s], d_winDiff[s],
@@ -256,12 +250,12 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
         }
         else {
             nCpu = root->searchScore(root->numDescendants < MAX_NUM_NODES,
-                                    useMinimax);
+                                    useMinimax, root->state & SOLVED);
             cpuOutcome = 0;
             for (uint i = 0; i < CPU_SIMS_PER_ITER; i++) {
                 cpuOutcome += simulateNode(nCpu, moves);
             }
-            nCpu->updateSim(CPU_SIMS_PER_ITER, cpuOutcome);
+            nCpu->updateSim(CPU_SIMS_PER_ITER, cpuOutcome, true);
             itersSinceLastKernelLaunch++;
         }
 
@@ -273,7 +267,7 @@ int expandGameTreeGpu(Node *root, bool useMinimax, int ms) {
         uint idx = (s+i)%GPU_NUM_KERNELS;
         cudaStreamSynchronize(streams[idx]);
         if (nGpu[idx]) {
-            nGpu[idx]->updateSim(NBLOCKS * NTHREADS - 1, *winDiff[idx]);
+            nGpu[idx]->updateSim(NBLOCKS * NTHREADS - 1, *winDiff[idx], true);
         }
     }
 
@@ -402,72 +396,80 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
         exit( -1 );
     }
 
-    cudaStream_t stream;
+    cudaStream_t streams[GPU_NUM_KERNELS];
 
-    std::vector<Node *> nGpus;
-    int *winDiffs;
-    int *d_winDiffs;
-    Board *boards;
-    Board *d_boards;
+    std::vector<std::vector<Node *>> nGpus(GPU_NUM_KERNELS);
+    int *winDiffs[GPU_NUM_KERNELS];
+    int *d_winDiffs[GPU_NUM_KERNELS];
+    Board *boards[GPU_NUM_KERNELS];
+    Board *d_boards[GPU_NUM_KERNELS];
 
     // Random numbers used to calculate random game states taken
-    float *d_rands;
-    curandGenerator_t gen;
+    float *d_rands[GPU_NUM_KERNELS];
+    curandGenerator_t gen[GPU_NUM_KERNELS];
 
-    cudaStreamCreate(&stream);
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        cudaStreamCreate(&streams[i]);
 
-    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-    curandSetStream(gen, stream);
+        curandCreateGenerator(&gen[i], CURAND_RNG_PSEUDO_DEFAULT);
+        curandSetStream(gen[i], streams[i]);
 
-    // // Allocate memory on GPU
-    gpuErrchk(cudaMalloc(&d_rands,
-        turnsLeft * MAX_NUM_MOVES * GPU_BLOCK_SIMS_PER_ITER * sizeof(float)));
-    gpuErrchk(cudaMalloc(&d_winDiffs, MAX_NUM_MOVES * sizeof(int)));
-    gpuErrchk(cudaMallocHost(&winDiffs, MAX_NUM_MOVES * sizeof(int)));
-    gpuErrchk(cudaMalloc(&d_boards, MAX_NUM_MOVES * sizeof(Board)));
-    gpuErrchk(cudaMallocHost(&boards, MAX_NUM_MOVES * sizeof(Board)));
+        // // Allocate memory on GPU
+        gpuErrchk(cudaMalloc(&d_rands[i],
+            turnsLeft * MAX_NUM_MOVES * GPU_BLOCK_SIMS * sizeof(float)));
+        gpuErrchk(cudaMalloc(&d_winDiffs[i], MAX_NUM_MOVES * sizeof(int)));
+        gpuErrchk(cudaMallocHost(&winDiffs[i], MAX_NUM_MOVES * sizeof(int)));
+        gpuErrchk(cudaMalloc(&d_boards[i], MAX_NUM_MOVES * sizeof(Board)));
+        gpuErrchk(cudaMallocHost(&boards[i], MAX_NUM_MOVES * sizeof(Board)));
+    }
+
+    uint itersSinceLastKernelLaunch = 0;
     
     // CPU simulation variables
     std::vector<Node *> nCpus;
     int cpuOutcome;
     Move moves[MAX_NUM_MOVES];
     int numIters = 0;
-    
+
+    // Current GPU stream
+    uint s = 0;
+
     // Main loop
-    while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000) {
-        if (cudaStreamQuery(stream) == cudaSuccess) {
+    while (clock() - startTime < ms * CLOCKS_PER_SEC / 1000 && !(root->state & SCORE_FINAL)) {
+        if (
+            itersSinceLastKernelLaunch >= GPU_KERNEL_LAUNCH_SPACING &&
+            cudaStreamQuery(streams[s]) == cudaSuccess) {
             // Update using the last result from this stream
-            if (nGpus.size() == 1) {
-                nGpus[0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[0]);
+            if (nGpus[s].size() == 1) {
+                nGpus[s][0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[s][0], true);
             }
             else {
-                for (uint i = 0; i < nGpus.size(); i++) {
-                    nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER - 1, winDiffs[i]);
+                for (uint i = 0; i < nGpus[s].size(); i++) {
+                    nGpus[s][i]->updateSim(GPU_BLOCK_SIMS - 1, winDiffs[s][i], true);
                 }
             }
             // Get a new node to start a simulation from
-            nGpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
-                                        useMinimax);
+            nGpus[s] = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
+                                        useMinimax, root->state & SOLVED);
             // Put dummy result at node
-            for (Node *n : nGpus) {
-                n->updateSim(1, 0);
+            for (Node *n : nGpus[s]) {
+                n->updateSim(1, 0, true);
             }
 
-            for (uint i = 0; i < nGpus.size(); i++) {
-                boards[i] = nGpus[i]->board;
+            for (uint i = 0; i < nGpus[s].size(); i++) {
+                boards[s][i] = nGpus[s][i]->board;
             }
             
             // Start simulation
-            if (nGpus.size() > 1) {
-                startNodeSimulationGpuBlock(boards, d_boards, nGpus[0]->side,
-                    nGpus.size(), winDiffs, d_winDiffs,
-                    d_rands, gen, turnsLeft, GPU_BLOCK_SIMS_PER_ITER, stream);
+            if (nGpus[s].size() > 1) {
+                startNodeSimulationGpuBlock(boards[s], d_boards[s], nGpus[s][0]->side,
+                    nGpus[s].size(), winDiffs[s], d_winDiffs[s],
+                    d_rands[s], gen[s], turnsLeft, GPU_BLOCK_SIMS, streams[s]);
             }
             else {
-                startNodeSimulationGpu(nGpus[0], &winDiffs[0], &d_winDiffs[0],
-                    d_rands, gen, turnsLeft, NBLOCKS, NTHREADS, stream);
+                startNodeSimulationGpu(nGpus[s][0], &winDiffs[s][0], &d_winDiffs[s][0],
+                    d_rands[s], gen[s], turnsLeft, NBLOCKS, NTHREADS, streams[s]);
             }
-            // cudaStreamSynchronize(stream);
 
             err = cudaGetLastError();
             if ( cudaSuccess != err ) {
@@ -475,30 +477,36 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
                          __FILE__, __LINE__, cudaGetErrorString( err ) );
                 exit( -1 );
             }
-            numIters++;
+            numIters += nGpus[s].size();
+            s = (s+1) % GPU_NUM_KERNELS;
+            itersSinceLastKernelLaunch = 0;
         }
         else {
             nCpus = root->searchScoreBlock(root->numDescendants < MAX_NUM_NODES,
-                                    useMinimax);
+                                    useMinimax, root->state & SOLVED);
             for (Node *n : nCpus) {
                 cpuOutcome = 0;
-                for (uint i = 0; i < CPU_BLOCK_SIMS_PER_ITER; i++) {
+                for (uint i = 0; i < CPU_BLOCK_SIMS; i++) {
                     cpuOutcome += simulateNode(n, moves);
                 }
-                n->updateSim(CPU_BLOCK_SIMS_PER_ITER, cpuOutcome);
+                n->updateSim(CPU_BLOCK_SIMS, cpuOutcome, true);
             }
+            itersSinceLastKernelLaunch++;
         }
     }
 
-    // Finish the last GPU call
-    cudaStreamSynchronize(stream);
-    if (nGpus.size() == 1) {
-        nGpus[0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[0]);
-    }
-    else {
-        for (uint i = 0; i < nGpus.size(); i++) {
-            nGpus[i]->updateSim(GPU_BLOCK_SIMS_PER_ITER - 1, winDiffs[i]);
-        }   
+    // Finish the last GPU calls
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        uint idx = (s+i)%GPU_NUM_KERNELS;
+        cudaStreamSynchronize(streams[idx]);
+        if (nGpus[idx].size() == 1) {
+            nGpus[idx][0]->updateSim(NBLOCKS * NTHREADS - 1, winDiffs[idx][0], true);
+        }
+        else {
+            for (uint i = 0; i < nGpus[idx].size(); i++) {
+                nGpus[idx][i]->updateSim(GPU_BLOCK_SIMS - 1, winDiffs[idx][i], true);
+            }   
+        }
     }
 
     err = cudaGetLastError();
@@ -509,11 +517,13 @@ int expandGameTreeGpuBlock(Node *root, bool useMinimax, int ms) {
     }
 
     // Free memory
-    curandDestroyGenerator(gen);
-    cudaStreamDestroy(stream);
-    gpuErrchk(cudaFree(d_rands));
-    gpuErrchk(cudaFree(d_winDiffs));
-    gpuErrchk(cudaFreeHost(winDiffs));
+    for (uint i = 0; i < GPU_NUM_KERNELS; i++) {
+        curandDestroyGenerator(gen[i]);
+        cudaStreamDestroy(streams[i]);
+        gpuErrchk(cudaFree(d_rands[i]));
+        gpuErrchk(cudaFree(d_winDiffs[i]));
+        gpuErrchk(cudaFreeHost(winDiffs[i]));
+    }
 
     err = cudaGetLastError();
     if ( cudaSuccess != err ) {

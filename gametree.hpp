@@ -5,8 +5,9 @@
 #include "board.hpp"
 #include "common.hpp"
 
-// Cp is a constant used for calculating a node's UCT score, choose 1/sqrt(2)
-#define CP 0.707
+// Cp is a constant used for calculating the exploration term in
+// a node's UCT score - choose sqrt(2)
+#define CP 1.41
 
 #define HEURISTIC_PRIOR 10
 
@@ -14,7 +15,8 @@
 #define SOLVED 0x01
 #define PROVEN_WIN 0x02
 #define PROVEN_LOSS 0x04
-#define FULLY_EXPANDED 0x08
+#define SCORE_FINAL 0x08
+#define FULLY_EXPANDED 0x10
 
 class Node {
   public:
@@ -27,10 +29,13 @@ class Node {
     std::vector<Node*> children;
 
     int winDiff;
+    // Number of simulations from any descendant of this node.
     uint numSims;
 
     uint numDescendants;
     float miniMaxScore;
+
+    float heuristicScore;
 
     Node(Board b, Node *parent, Side side);
     ~Node();
@@ -38,13 +43,13 @@ class Node {
 
     // Search all descendants of this node for the best node to expand
     // based on UCT score.
-    Node *searchScore(bool expand, bool useMinimax);
+    Node *searchScore(bool expand, bool useMinimax, bool maximizeScore);
 
-    std::vector<Node *> searchScoreBlock(bool expand, bool useMinimax);
+    std::vector<Node *> searchScoreBlock(bool expand, bool useMinimax, bool maximizeScore);
 
     Node *searchBoard(Board b, Side s, int depth);
 
-    void updateSim(int numSims, int winDiff);
+    void updateSim(int numSims, int winDiff, bool updateMinimaxScore);
 
 
     // Given simulations so far, return move with most number of simulations.

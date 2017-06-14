@@ -14,8 +14,11 @@
 // Comment out to use CPU only
 #define GPU_ON
 
-// Start using minimax at this turn
-#define MINIMAX_TURN 0
+// Comment out to only do a rollout from a single child at a time.
+#define BLOCK_PARALLEL
+
+// Use minimax for backpropogation of scores?
+#define USE_MINIMAX true
 
 const float time_alloc[60] =
 {
@@ -78,7 +81,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
             delete root;
             root = new_root;
             assert (root->side == this->side);
-            fprintf(stderr, "Saved %d old simulations in %d nodes.\n", root->numSims, root->numDescendants);
+            fprintf(stderr, "Saved %u old simulations in %u nodes.\n", root->numSims, root->numDescendants);
         }
         else {
             delete root;
@@ -98,7 +101,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
         fprintf(stderr, "[No moves]: PASS\n\n");
         return nullptr;
     }
-    else if ((root->state & SOLVED) && !(root->state & PROVEN_LOSS)) {
+    else if ((root->state & SCORE_FINAL) && !(root->state & PROVEN_LOSS)) {
         move = new Move();
         root->getBestMove(move, true, true);
         board->doMove(*move, this->side);
@@ -112,24 +115,32 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
         return move;
     }
 
-    bool useMinimax = moveNumber > MINIMAX_TURN;
+    int numGpuSimNodes = 0;
 
     #ifdef GPU_ON
-        // expandGameTreeGpu(root, useMinimax, timeBudgetMs);
-        expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs);
+        #ifdef BLOCK_PARALLEL
+            numGpuSimNodes = expandGameTreeGpuBlock(root, USE_MINIMAX, timeBudgetMs);
+        #else
+            numGpuSimNodes = expandGameTreeGpu(root, USE_MINIMAX, timeBudgetMs);
+        #endif
     #else
-        expandGameTree(root, useMinimax, timeBudgetMs);
+        expandGameTree(root, USE_MINIMAX, timeBudgetMs);
     #endif
+
+    fprintf(stderr, "%d nodes simulated with GPU\n", numGpuSimNodes);
 
     move = new Move();
     int numRetries = 0;
-    while (!root->getBestMove(move, useMinimax, numRetries > 9)) {
+    while (!root->getBestMove(move, USE_MINIMAX, numRetries > 9)) {
         fprintf(stderr, ".");
         #ifdef GPU_ON
-            // expandGameTreeGpu(root, useMinimax, timeBudgetMs/10);
-            expandGameTreeGpuBlock(root, useMinimax, timeBudgetMs/10);
+            #ifdef BLOCK_PARALLEL
+                numGpuSimNodes += expandGameTreeGpuBlock(root, USE_MINIMAX, timeBudgetMs/10);
+            #else
+                numGpuSimNodes += expandGameTreeGpu(root, USE_MINIMAX, timeBudgetMs/10);
+            #endif
         #else
-            expandGameTree(root, useMinimax, timeBudgetMs/10);
+            expandGameTree(root, USE_MINIMAX, timeBudgetMs/10);
         #endif
         numRetries++;
     }

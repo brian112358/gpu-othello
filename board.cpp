@@ -223,8 +223,8 @@ int Board::countEmpty() {
 }
 
 #define K_CORNERS 0.54
-#define K_X_SQUARES 0.20
-#define K_C_SQUARES 0.05
+#define K_X_SQUARES 0.15
+#define K_C_SQUARES 0.1
 #define K_PARITY 0.1
 #define K_MOBILITY 0.05
 #define K_FRONTIER 0.05
