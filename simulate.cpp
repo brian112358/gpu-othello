@@ -20,6 +20,7 @@
 #define CPU_SIMS_PER_ITER 1
 
 #define GPU_KERNEL_LAUNCH_SPACING 1
+// TODO: running multiple streams seems to be blocking
 #define GPU_NUM_KERNELS 1
 #define NBLOCKS 16
 #define NTHREADS 256
