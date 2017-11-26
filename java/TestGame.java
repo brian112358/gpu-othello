@@ -25,8 +25,8 @@ public class TestGame {
                 players[i] = new BetterPlayer();
             } else if (args[i].equalsIgnoreCase("Human")) {
                 players[i] = new OthelloDisplay(which++);
-            } else if (args[i].equalsIgnoreCase("TrainedPlayer")) {
-                players[i] = new TrainedPlayer();
+            // } else if (args[i].equalsIgnoreCase("TrainedPlayer")) {
+            //     players[i] = new TrainedPlayer();
             } else {
                 players[i] = new WrapperPlayer(args[i]);
             }

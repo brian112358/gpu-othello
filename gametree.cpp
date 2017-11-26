@@ -12,10 +12,6 @@ Node::Node(Board b, Node *parent, Side side) :
     board(b), parent(parent), side(side),
     winDiff(0), numSims(0), numDescendants(1), miniMaxScore(0), state(0) {
 
-    if ((unsigned long long) this > 0xffffffff) {
-        fprintf(stderr, "Weird node pointer: %p\n", this);
-    }
-
     Move movesArr[MAX_NUM_MOVES];
     int numMoves = b.getMovesAsArray(movesArr, side);
     assert( 0 <= numMoves && numMoves < MAX_NUM_MOVES);
@@ -43,7 +39,7 @@ Node::Node(Board b, Node *parent, Side side) :
             }
         }
     }
-    this->heuristicScore = this->board.getHeuristic(this->side);
+    heuristicScore = board.getHeuristic(this->side);
 }
 
 Node::~Node() {
@@ -89,7 +85,7 @@ std::vector<Node *> Node::addChildren() {
     return children;
 }
 
-// Searches depth down 
+// Searches depth down
 Node *Node::searchBoard(Board b, Side s, int depth) {
     if (depth < 0) {
         return nullptr;
@@ -157,7 +153,8 @@ Node *Node::searchScore(bool expand, bool useMinimax, bool maximizeScore) {
             // report piece differentials)
             if (exploit < 0) exploit = 0;
             if (exploit > 1) exploit = 1;
-            float explore = sqrt(2 * log(numSims) / n->numSims);
+            float explore = sqrt(2 * log(adjustedNumSims())
+                / n->adjustedNumSims());
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
                 bestScore = score;
@@ -203,7 +200,9 @@ std::vector<Node *> Node::searchScoreBlock(bool expand, bool useMinimax, bool ma
             // report piece differentials)
             if (exploit < 0) exploit = 0;
             if (exploit > 1) exploit = 1;
-            float explore = sqrt(2 * log(numSims) / n->numSims);
+            float explore = sqrt(2 *
+                log(adjustedNumSims()) /
+                (n->adjustedNumSims()));
             float score = exploit + CP * explore;
             if (!bestChild || score > bestScore) {
                 bestScore = score;
@@ -224,6 +223,10 @@ void Node::incrementNumDescendants(int numToAdd) {
     if (parent) parent->incrementNumDescendants(numToAdd);
 }
 
+uint Node::adjustedNumSims() {
+    return HEURISTIC_PRIOR * numDescendants + numSims;
+}
+
 void Node::updateSim(int numSims, int winDiff, bool updateMinimaxScore) {
     this->winDiff += winDiff;
     this->numSims += numSims;
@@ -234,16 +237,15 @@ void Node::updateSim(int numSims, int winDiff, bool updateMinimaxScore) {
     if (this->state & SCORE_FINAL) {
         // Don't update anything
     }
-    // If this node doesn't have any children, then set miniMaxScore to 
-    // the win rate (possibly add heuristic as a prior here)
+    // If this node doesn't have any children, then set miniMaxScore to
+    // the win rate (with heuristic prior)
     else if (numDescendants == 1) {
-        this->miniMaxScore = (this->winDiff + this->heuristicScore * HEURISTIC_PRIOR)
+        this->miniMaxScore =
+            (this->winDiff + this->heuristicScore * HEURISTIC_PRIOR)
                                 / (this->numSims + HEURISTIC_PRIOR);
     }
     else if (updateMinimaxScore) {
         assert( children.size() > 0);
-        // float oldScore = this->miniMaxScore;
-        this->miniMaxScore = -FLT_MAX;
         // If ANY child is a proven loss, then this is a proven win
         // If ALL children are proven wins, then this is a proven loss.
         // If ALL children are solved (or this is a proven win),
@@ -253,13 +255,16 @@ void Node::updateSim(int numSims, int winDiff, bool updateMinimaxScore) {
         this->state |= PROVEN_LOSS;
         this->state &= ~PROVEN_WIN;
         this->state |= SCORE_FINAL;
-        uint numSimsFromChildren = 0;
-        int winDiffFromNode = this->winDiff;
+        float max_score = -FLT_MAX;
+        float n_score;
         for (Node *n : children) {
             if (n) {
-                numSimsFromChildren += n->numSims;
-                winDiffFromNode += n->winDiff;
-                if (-n->miniMaxScore > this->miniMaxScore) {
+                n_score = -n->miniMaxScore;
+                if (!(n->state & SOLVED)) {
+                    n_score *= (1. - sqrt(1.f / n->adjustedNumSims()));
+                }
+                if (n_score > max_score) {
+                    max_score = n_score;
                     this->miniMaxScore = -n->miniMaxScore;
                 }
                 if (n->state & PROVEN_LOSS) {
@@ -283,59 +288,53 @@ void Node::updateSim(int numSims, int winDiff, bool updateMinimaxScore) {
         if (this->state & PROVEN_WIN) {
             this->state |= SOLVED;
         }
-        if (!(this->state & SOLVED)) {
-            this->miniMaxScore = (winDiffFromNode +
-                    (numSimsFromChildren + (this->numDescendants - 1) * HEURISTIC_PRIOR) * this->miniMaxScore
-                    + this->heuristicScore * HEURISTIC_PRIOR)
-                / (this->numSims + this->numDescendants * HEURISTIC_PRIOR);
-        }
-        // If the miniMaxScore didn't change, then the ancestors' scores don't
-        // need to be updated either.
-        // if (abs(oldScore - this->miniMaxScore) < 1e-7) {
-        //     updateMinimaxScore = false;
-        // }
-        if (this->miniMaxScore < -1000) {
+        if (abs(this->miniMaxScore) > 64) {
             fprintf(stderr, "OoB score: %f\n", this->miniMaxScore);
         }
-        // assert(this->miniMaxScore > -1000);
     }
     // Node can't be both a PROVEN_WIN and PROVEN_LOSS
     assert( !((this->state & PROVEN_WIN) && (this->state & PROVEN_LOSS)) );
-    // Negate number of wins 
+    // Negate number of wins
     if (parent) parent->updateSim(numSims, -winDiff, updateMinimaxScore);
 }
 
 
 bool Node::getBestMove(Move *m, bool useMinimax, bool forceResult) {
     float bestScore = -FLT_MAX;
-    float bestWinDiffScore = -FLT_MAX;
     Move bestScoreMove(-1, -1);
     uint bestMoveFreq = 0;
     Move mostFrequentMove(-1, -1);
     Move moves[MAX_NUM_MOVES];
     int numMoves = board.getMovesAsArray(moves, side);
-    bool proven_win = false;
+    float score;
     for (uint i = 0; i < numMoves; i++) {
         Node *n = children[i];
         if (n) {
             assert(n->side != side);
-            float winDiffScore = (float) -n->winDiff / n->numSims;
-            float score = useMinimax? (-n->miniMaxScore) : winDiffScore;
-            // If any child is a proven loss for the other side, then choose that move.
-            if (n->state & PROVEN_LOSS) {
-                proven_win = true;
-                if (!proven_win || -n->miniMaxScore > bestScore) {
-                    bestScoreMove = moves[i];
-                    bestScore = -n->miniMaxScore;
-                    mostFrequentMove = moves[i];
-                    bestMoveFreq = n->numSims;
+            if (useMinimax) {
+                score = -n->miniMaxScore;
+                if (!(n->state & SOLVED)) {
+                    score *= (1. - sqrt(1.f / n->adjustedNumSims()));
                 }
             }
-
-            if (!proven_win) {
+            else {
+                score = (float) -n->winDiff / n->numSims;
+            }
+            if (state & PROVEN_WIN) {
+                // If any child is a proven loss for the other side, then choose that move.
+                if (n->state & PROVEN_LOSS) {
+                    if (!(state & PROVEN_WIN) || -n->miniMaxScore > bestScore) {
+                        bestScoreMove = moves[i];
+                        bestScore = -n->miniMaxScore;
+                        mostFrequentMove = moves[i];
+                        bestMoveFreq = n->numSims;
+                    }
+                }
+            }
+            else {
                 // If the current node is a guaranteed tie (and not a guaranteed
                 // win), then choose the child that is also a guaranteed tie.
-                if ((this->state & SOLVED) && !(this->state & PROVEN_WIN) &&
+                if ((this->state & SOLVED) &&
                     (n->state & SOLVED) && !(n->state & PROVEN_WIN)) {
                     bestScoreMove = moves[i];
                     mostFrequentMove = moves[i];
@@ -347,11 +346,6 @@ bool Node::getBestMove(Move *m, bool useMinimax, bool forceResult) {
                 if (score > bestScore) {
                     bestScoreMove = moves[i];
                     bestScore = score;
-                    bestWinDiffScore = winDiffScore;
-                }
-                else if (abs(score - bestScore) < 1e-7 && winDiffScore > bestWinDiffScore) {
-                    bestScoreMove = moves[i];
-                    bestWinDiffScore = winDiffScore;
                 }
 
                 if (n->numSims > bestMoveFreq) {
@@ -361,7 +355,9 @@ bool Node::getBestMove(Move *m, bool useMinimax, bool forceResult) {
             }
         }
     }
-    if (bestScoreMove != mostFrequentMove && !forceResult) {
+    if (bestScoreMove != mostFrequentMove
+        && !(state & SCORE_FINAL)
+        && !forceResult) {
         return false;
     }
 
@@ -372,7 +368,8 @@ bool Node::getBestMove(Move *m, bool useMinimax, bool forceResult) {
     else if (state & SOLVED) {
         std::cerr << "[Proven] ";
     }
-    std::cerr << "Played (" << bestScoreMove.x << ", " << bestScoreMove.y << "): "
-            << bestScore << " (" << bestMoveFreq << "/" << numSims << ")" << std::endl;
+    fprintf(stderr, "Played (%u, %u): %f (%.1e / %.1e)\n",
+        bestScoreMove.x, bestScoreMove.y,
+        bestScore, (float)bestMoveFreq, (float)numSims);
     return true;
 }

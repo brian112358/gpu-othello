@@ -51,6 +51,7 @@ class Node {
 
     void updateSim(int numSims, int winDiff, bool updateMinimaxScore);
 
+    uint adjustedNumSims();
 
     // Given simulations so far, return move with most number of simulations.
     bool getBestMove(Move *m, bool useMinimax, bool forceResult);

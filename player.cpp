@@ -10,6 +10,7 @@
 
 #include "gametree.hpp"
 #include "simulate.hpp"
+#include "gpu_utilities.hpp"
 
 // Comment out to use CPU only
 #define GPU_ON
@@ -36,10 +37,10 @@ const float time_alloc[60] =
 
 /*
  * Constructor for the player; initialize everything here. The side your AI is
- * on (BLACK or WHITE) is passed in as "side". The constructor must finish 
+ * on (BLACK or WHITE) is passed in as "side". The constructor must finish
  * within 30 seconds.
  */
-Player::Player(Side side) {    
+Player::Player(Side side) {
     board = new Board();
     root = nullptr;
     this->side = side;
@@ -63,7 +64,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     assert(0 <= moveNumber && moveNumber <= 60);
     int timeBudgetMs = msLeft < 0? 8000:(time_alloc[moveNumber] * msLeft);
     if (timeBudgetMs < 500) timeBudgetMs = 500;
-    
+
     fprintf(stderr, "\nAllocated %d of %d ms on move %d.\n",
         timeBudgetMs, msLeft, moveNumber);
 
@@ -81,7 +82,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
             delete root;
             root = new_root;
             assert (root->side == this->side);
-            fprintf(stderr, "Saved %u old simulations in %u nodes.\n", root->numSims, root->numDescendants);
+            fprintf(stderr, "Saved %.1e old simulations in %u nodes.\n", (float)root->numSims, root->numDescendants);
         }
         else {
             delete root;
@@ -118,6 +119,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     int numGpuSimNodes = 0;
 
     #ifdef GPU_ON
+        GPU_Utilities::select_least_utilized_GPU();
         #ifdef BLOCK_PARALLEL
             numGpuSimNodes = expandGameTreeGpuBlock(root, USE_MINIMAX, timeBudgetMs);
         #else
@@ -133,6 +135,7 @@ Move *Player::doMove(Move *opponentsMove, int msLeft) {
     int numRetries = 0;
     while (!root->getBestMove(move, USE_MINIMAX, numRetries > 9)) {
         fprintf(stderr, ".");
+        fflush(stderr);
         #ifdef GPU_ON
             #ifdef BLOCK_PARALLEL
                 numGpuSimNodes += expandGameTreeGpuBlock(root, USE_MINIMAX, timeBudgetMs/10);

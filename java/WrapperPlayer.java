@@ -9,7 +9,7 @@ import java.io.OutputStreamWriter;
  * back and forth using stdin/stdout.
  */
 public class WrapperPlayer implements OthelloPlayer {
-    private final static int MAX_MEMORY_KB = 8388608; //786432;
+    private final static int MAX_MEMORY_KB = 16777216; //786432;
     private Process p;
     private BufferedReader br;
     private BufferedReader stderr;
@@ -43,14 +43,14 @@ public class WrapperPlayer implements OthelloPlayer {
             while (stderr.ready()) {
                 System.out.println(stderr.readLine());
             }
-        } catch (Exception e) {   
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
-    
+
     /**
      * Makes the next move in the game.
-     * 
+     *
      * @param opponentsMove the last move made by the other player. If
      * it is null, then that player passed, of this player is the first
      * player to make a move.
@@ -110,7 +110,8 @@ public class WrapperPlayer implements OthelloPlayer {
      */
     public void init(OthelloSide side) {
         try {
-            String cmd = "ulimit -m " + MAX_MEMORY_KB + " -v " + MAX_MEMORY_KB + ";";
+            // String cmd = "ulimit -m " + MAX_MEMORY_KB + " -v " + MAX_MEMORY_KB + ";";
+            String cmd = "";
             cmd += "./" + name + " " + side;
             ProcessBuilder pb = new ProcessBuilder("bash", "-c", cmd);
             p = pb.start();
